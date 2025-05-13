@@ -1,0 +1,260 @@
+.file-uploader-container {
+  border: 1px dashed #ccc;
+  border-radius: 4px;
+  padding: 20px;
+  min-height: 120px;
+  display: flex;
+  flex-direction: column;
+  transition: all 0.3s ease;
+  background-color: #f9f9f9;
+  box-sizing: border-box;
+  overflow: auto;
+  max-height: 500px;
+}
+
+.file-uploader-container:hover {
+  border-color: #0078d4;
+  background-color: #f0f0f0;
+}
+
+.file-uploader-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  text-align: center;
+  cursor: pointer;
+  padding: 20px;
+  flex: 1;
+  height: 100%;
+  min-height: 100px;
+}
+
+.file-uploader-text {
+  margin-top: 10px;
+  color: #666;
+}
+
+.files-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+  margin-bottom: 10px;
+}
+
+.add-files-button {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  background-color: transparent;
+  border: 1px solid #0078d4;
+  color: #0078d4;
+  border-radius: 2px;
+  padding: 4px 8px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.add-files-button:hover {
+  background-color: #0078d4;
+  color: white;
+}
+
+.scroll-indicator {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  color: #666;
+  gap: 8px;
+  margin: 10px 0 5px;
+  padding: 5px;
+  background-color: #f0f0f0;
+  border-radius: 4px;
+  animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+  0% {
+    opacity: 0.6;
+  }
+  50% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0.6;
+  }
+}
+
+.file-grid {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  gap: 15px;
+  margin-top: 15px;
+  width: 100%;
+  overflow-x: auto;
+  padding-bottom: 10px;
+  scroll-behavior: smooth;
+}
+
+.file-card {
+  display: flex;
+  align-items: center;
+  padding: 12px;
+  border: 1px solid #eee;
+  border-radius: 4px;
+  background-color: white;
+  position: relative;
+  transition: all 0.2s ease;
+  min-width: 250px;
+  max-width: 300px;
+  flex: 0 0 auto;
+}
+
+.file-card:hover {
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
+  border-color: #ccc;
+}
+
+.file-card.existing-file {
+  background-color: #f8f8f8;
+  border: 1px dashed #d0d0d0;
+}
+
+.file-card.existing-file .file-icon {
+  color: #666;
+}
+
+.existing-file-indicator {
+  display: flex;
+  align-items: center;
+  color: #8a8886;
+  font-style: italic;
+}
+
+.file-icon {
+  margin-right: 12px;
+  color: #0078d4;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-width: 40px;
+}
+
+.file-details {
+  flex-grow: 1;
+  overflow: hidden;
+  max-width: calc(100% - 85px);
+}
+
+.file-name {
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-bottom: 4px;
+}
+
+.file-meta {
+  display: flex;
+  font-size: 12px;
+  color: #666;
+  gap: 12px;
+}
+
+.file-size {
+  color: #777;
+}
+
+.remove-button {
+  background: none;
+  border: none;
+  color: #d83b01;
+  cursor: pointer;
+  padding: 5px;
+  font-size: 14px;
+  opacity: 0.6;
+  transition: opacity 0.2s ease;
+}
+
+.remove-button:hover {
+  opacity: 1;
+  color: #a80000;
+}
+
+.drag-active {
+  border-color: #0078d4;
+  background-color: #e6f7ff;
+}
+
+/* Scrollbar styling for horizontal scroll */
+.file-grid::-webkit-scrollbar {
+  height: 8px;
+}
+
+.file-grid::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 4px;
+}
+
+.file-grid::-webkit-scrollbar-thumb {
+  background: #ccc;
+  border-radius: 4px;
+}
+
+.file-grid::-webkit-scrollbar-thumb:hover {
+  background: #aaa;
+}
+
+/* Upload Section Styles */
+.upload-section {
+  margin-top: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+  padding-top: 15px;
+  border-top: 1px solid #eee;
+}
+
+.submit-button-container {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 10px;
+}
+
+/* Progress Indicator styling */
+.ms-ProgressIndicator {
+  margin: 10px 0;
+}
+
+.ms-ProgressIndicator-itemName {
+  font-weight: 600;
+}
+
+.ms-ProgressIndicator-itemDescription {
+  font-size: 12px;
+}
+
+/* Message Bar styling */
+.ms-MessageBar {
+  margin: 10px 0;
+}
+
+/* Progress Bar container styling */
+.progress-container {
+  margin-bottom: 10px;
+}
+
+.progress-label {
+  margin-bottom: 5px;
+  font-weight: 600;
+}
+
+.progress-text {
+  font-size: 12px;
+  color: #666;
+  margin-top: 5px;
+}
