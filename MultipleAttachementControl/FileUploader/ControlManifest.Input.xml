@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<manifest>
+  <control namespace="PrakashKPCF" constructor="MultipleFileUploader" version="3.0.1" display-name-key="Multiple File Uploader" description-key="Upload multiple files as attachments" control-type="virtual">
+    <external-service-usage enabled="false">
+    </external-service-usage>
+    <property name="fileData" display-name-key="File Data" description-key="Data for the files to be uploaded" of-type="Multiple" usage="bound" required="true" />
+    <property name="isUploading" display-name-key="Is Uploading" description-key="Whether the files are currently being uploaded" of-type="TwoOptions" usage="bound" required="true" />
+    <property name="uploadProgress" display-name-key="Upload Progress" description-key="Progress of the file upload" of-type="Whole.None" usage="output" required="false" />
+    <property name="uploadMessage" display-name-key="Upload Message" description-key="Message to display during file upload" of-type="Object" usage="output" required="false" />
+    <property name="parentEntityName" display-name-key="Parent Entity Name" description-key="Logical name of the parent entity to associate notes with" of-type="SingleLine.Text" usage="input" required="true" />
+    <property name="parentRecordId" display-name-key="Parent Entity RecordId" description-key="GUID of the parent entity record to associate notes with" of-type="SingleLine.Text" usage="bound" required="true" />
+    <resources>
+      <code path="index.ts" order="1"/>
+      <css path="css/FileUploader.css" order="1" />
+      <platform-library name="React" version="16.14.0" />
+      <platform-library name="Fluent" version="8.121.1" />
+    </resources>
+    <feature-usage>
+      <uses-feature name="Device.pickFile" required="true" />
+      <uses-feature name="Utility" required="true" />
+      <uses-feature name="WebAPI" required="true" />
+    </feature-usage>
+  </control>
+</manifest>
