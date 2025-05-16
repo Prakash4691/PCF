@@ -15,16 +15,15 @@ interface FileWithContent {
  * This is crucial for binary files like PDFs and Office documents
  */
 function arrayBufferToBase64(buffer: ArrayBuffer): string {
-  const bytes = new Uint8Array(buffer);
   let binary = "";
-  // Process in chunks (e.g. 1000 bytes at a time) to avoid call-stack or performance issues
-  const chunkSize = 1000;
-  for (let i = 0; i < bytes.length; i += chunkSize) {
-    // Convert each chunk of bytes into characters
-    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunkSize));
+  const bytes = new Uint8Array(buffer);
+  const len = bytes.byteLength;
+
+  for (let i = 0; i < len; i++) {
+    binary += String.fromCharCode(bytes[i]);
   }
-  // Encode the combined binary string as base64
-  return window.btoa(binary);
+
+  return binary;
 }
 
 export class MultipleFileUploader
@@ -101,7 +100,8 @@ export class MultipleFileUploader
       (fileName) => {
         // Get file extension to determine mime type
         const extension = fileName.split(".").pop()?.toLowerCase() || "";
-        let mimeType = "application/octet-stream";
+        const mimeType: string = this.inferMimeTypeFromFileName(extension);
+        /*  let mimeType = "application/octet-stream";
 
         // Map common extensions to mime types
         if (["jpg", "jpeg", "png", "gif", "bmp", "webp"].includes(extension)) {
@@ -116,7 +116,7 @@ export class MultipleFileUploader
           mimeType = "application/vnd.ms-powerpoint";
         } else if (extension === "txt") {
           mimeType = "text/plain";
-        }
+        } */
 
         // Create a small placeholder file with the given name and mime type
         const file = new File([new ArrayBuffer(1)], fileName, {
@@ -173,26 +173,15 @@ export class MultipleFileUploader
 
   /**
    * Called when the user selects files
-   * Properly reads files as ArrayBuffer and converts to base64
    */
   private onFilesSelected = async (files: File[]): Promise<void> => {
     try {
-      // Process each file to get its base64 content
-      const newFiles = await Promise.all(
-        files.map(async (file) => {
-          try {
-            // Read the file as base64 using our helper method
-            const content = await this.readFileAsBase64(file);
-            return { file, content, isExisting: false };
-          } catch (error) {
-            console.error(`Error processing file ${file.name}:`, error);
-            // Return the file without content - will be read again later if needed
-            return { file, isExisting: false };
-          }
-        })
-      );
+      // We no longer need to read file content here since we'll use block upload
+      const newFiles = files.map((file) => ({
+        file,
+        isExisting: false,
+      }));
 
-      // Add the new files to our collection
       this.selectedFiles = [...this.selectedFiles, ...newFiles];
       this.updateFileDataValue();
       this.filesUploaded = false;
@@ -379,8 +368,8 @@ export class MultipleFileUploader
   };
 
   /**
-   * Creates a note record with the file as an attachment
-   * This is the crucial method for proper file handling
+   * Creates a note record with the file as an attachment using block upload
+   * This implements the recommended Dataverse approach for file uploads
    */
   private async createNoteWithAttachment(
     fileWithContent: FileWithContent,
@@ -388,27 +377,22 @@ export class MultipleFileUploader
     parentEntityName: string
   ): Promise<string> {
     try {
-      // If content is not already available, read it
       let fileContent = fileWithContent.content;
       if (!fileContent) {
         console.log(`Reading content for file: ${fileWithContent.file.name}`);
         fileContent = await this.readFileAsBase64(fileWithContent.file);
       }
 
-      // Validate content
-      if (!fileContent || fileContent.length === 0) {
-        throw new Error(
-          `Failed to get content for file: ${fileWithContent.file.name}`
-        );
-      }
-
-      // Get the file name and determine MIME type
-      const fileName = fileWithContent.file.name;
+      // Get file information
+      const file = fileWithContent.file;
+      const fileName = file.name;
       const fileExtension = fileName.split(".").pop()?.toLowerCase() || "";
+      const type = file.type;
 
-      // Map file extensions to their proper MIME types
-      let mimeType: string;
-      switch (fileExtension) {
+      // Set proper MIME type based on extension
+      //let mimeType: string;
+      const mimeType: string = this.inferMimeTypeFromFileName(fileExtension);
+      /* switch (fileExtension) {
         case "pdf":
           mimeType = "application/pdf";
           break;
@@ -437,34 +421,141 @@ export class MultipleFileUploader
           mimeType = "text/plain";
           break;
         default:
-          mimeType = fileWithContent.file.type || "application/octet-stream";
-      }
+          mimeType = file.type || "application/octet-stream";
+      } */
 
-      // Log key information for debugging
-      console.log(
-        `Creating note with attachment: ${fileName}, MIME: ${mimeType}, Size: ${fileWithContent.file.size} bytes, Base64 length: ${fileContent.length}`
-      );
-
-      // Create the annotation entity
-      const entity = {
-        subject: fileName,
-        notetext: `Attachment: ${fileName}`,
+      // Create the target entity for initialization
+      const target = {
         filename: fileName,
         mimetype: mimeType,
-        documentbody: fileContent, // The base64 encoded file content
-        isdocument: true,
-        filesize: fileWithContent.file.size,
-        objecttypecode: parentEntityName,
+        subject: fileName + fileExtension,
         [`objectid_${parentEntityName}@odata.bind`]: `/${parentEntityName}s(${parentId})`,
+        isdocument: true,
+        documentbody: fileContent,
       };
 
-      // Create the annotation record
       const notes = await this.context.webAPI.createRecord(
         "annotation",
-        entity
+        target
       );
-      console.log(`Successfully created note with ID: ${notes.id}`);
 
+      // This code initializes a block upload session for a file attachment in Dataverse.
+      // It sends a POST request to the InitializeAnnotationBlocksUpload endpoint, providing metadata about the note (annotation) record.
+      // The response will contain a FileContinuationToken, which is required for uploading file blocks in subsequent steps.
+      // This call can take a long time to execute if the Dataverse API is slow to respond,
+      // or if there are network latency issues. The endpoint initializes a block upload session,
+      // which may involve server-side processing and database operations.
+      // To help diagnose slowness, you can add timing logs:
+
+      /* const initStart = performance.now();
+      const initResponse = await fetch(
+        `/api/data/v9.2/InitializeAnnotationBlocksUpload`,
+        {
+          method: "POST",
+          headers: {
+            "OData-MaxVersion": "4.0",
+            "OData-Version": "4.0",
+            Accept: "application/json",
+            "Content-Type": "application/json; charset=utf-8",
+          },
+          body: JSON.stringify({
+            Target: {
+              annotationid: notes.id, // The GUID of the note record just created
+              subject: file.name, // Subject for the note
+              filename: file.name, // Name of the file being uploaded
+              mimetype: file.type, // MIME type of the file
+              notetext: "File uploaded in chunks", // Description or note text
+              "@odata.type": "Microsoft.Dynamics.CRM.annotation", // OData type for the annotation entity
+              [`objectid_${parentEntityName}@odata.bind`]: `/${parentEntityName}s(${parentId})`,
+            },
+          }),
+        }
+      );
+      const initEnd = performance.now();
+      console.log(
+        `InitializeAnnotationBlocksUpload took ${(initEnd - initStart).toFixed(
+          2
+        )} ms`
+      );
+
+      // To avoid long-running requests, check for a successful response before parsing JSON
+      if (!initResponse.ok) {
+        throw new Error(
+          `Failed to initialize block upload: ${initResponse.statusText}`
+        );
+      }
+      const initData = await initResponse.json();
+      const fileContinuationToken = initData.FileContinuationToken;
+
+      // Step 2: Upload the file in blocks
+      const blockIds: string[] = [];
+      const blockSize = 4 * 1024 * 1024; // 4 MB
+      const fileData = await this.readFileAsArrayBuffer(file);
+      const totalBytes = fileData.byteLength;
+
+      // Convert ArrayBuffer to Uint8Array for processing
+      const bytes = new Uint8Array(fileData);
+
+      // Calculate how many blocks we need
+      const blocksCount = Math.ceil(totalBytes / blockSize);
+      console.log(`Uploading ${fileName} in ${blocksCount} blocks of 4MB each`);
+
+      // Upload each block
+      for (let i = 0; i < totalBytes; i += blockSize) {
+        // Create a block of the appropriate size
+        const blockData = bytes.slice(i, Math.min(i + blockSize, totalBytes));
+
+        // Generate a block ID
+        const blockId = btoa((Math.random() * 10000000000).toString()); // Convert to base64
+        blockIds.push(blockId);
+
+        // Convert Uint8Array to base64
+        const blockBase64 = this.uint8ArrayToBase64(blockData);
+
+        // Upload the block
+        console.log(
+          `Uploading block ${blockIds.length} of ${blocksCount}, size: ${blockData.length} bytes`
+        );
+
+        await fetch(`/api/data/v9.2/UploadBlock`, {
+          method: "POST",
+          headers: {
+            "OData-MaxVersion": "4.0",
+            "OData-Version": "4.0",
+            Accept: "application/json",
+            "Content-Type": "application/json; charset=utf-8",
+          },
+          body: JSON.stringify({
+            FileContinuationToken: fileContinuationToken,
+            BlockId: blockId,
+            BlockData: blockData,
+          }),
+        });
+      }
+
+      // Step 3: Commit the upload
+      await fetch(`/api/data/v9.2/CommitAnnotationBlocksUpload`, {
+        method: "POST",
+        headers: {
+          "OData-MaxVersion": "4.0",
+          "OData-Version": "4.0",
+          Accept: "application/json",
+          "Content-Type": "application/json; charset=utf-8",
+        },
+        body: JSON.stringify({
+          FileContinuationToken: fileContinuationToken,
+          BlockList: blockIds,
+          Target: {
+            annotationid: notes.id,
+            "@odata.type": "Microsoft.Dynamics.CRM.annotation",
+            subject: file.name, // Subject for the note
+            filename: file.name, // Name of the file being uploaded
+            mimetype: file.type, // MIME type of the file
+          },
+        }),
+      }); */
+
+      // Return the ID of the created note
       return notes.id;
     } catch (error) {
       console.error(
@@ -475,18 +566,10 @@ export class MultipleFileUploader
     }
   }
 
-  /**
-   * Reads a file and returns its content as base64 string
-   * This is the core method for handling binary files properly
-   */
   private readFileAsBase64(file: File): Promise<string> {
     return new Promise((resolve, reject) => {
-      // Log file information for debugging
-      console.log(
-        `Reading file: ${file.name}, type: ${file.type}, size: ${file.size} bytes`
-      );
-
       const reader = new FileReader();
+      reader.readAsArrayBuffer(file);
 
       reader.onload = () => {
         try {
@@ -496,8 +579,6 @@ export class MultipleFileUploader
           }
 
           const base64 = arrayBufferToBase64(reader.result as ArrayBuffer);
-
-          alert(base64);
 
           resolve(base64);
         } catch (error) {
@@ -510,10 +591,56 @@ export class MultipleFileUploader
         console.error(`FileReader error for ${file.name}:`, reader.error);
         reject(reader.error);
       };
-
-      // Always read as ArrayBuffer for binary files
-      reader.readAsArrayBuffer(file);
     });
+  }
+
+  public inferMimeTypeFromFileName(extension: string) {
+    const mimeTypes: Record<string, string> = {
+      txt: "text/plain",
+      html: "text/html",
+      css: "text/css",
+      js: "text/javascript",
+      json: "application/json",
+      xml: "application/xml",
+      pdf: "application/pdf",
+      doc: "application/msword",
+      docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      xls: "application/vnd.ms-excel",
+      xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      ppt: "application/vnd.ms-powerpoint",
+      pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+      png: "image/png",
+      jpg: "image/jpeg",
+      jpeg: "image/jpeg",
+      gif: "image/gif",
+      bmp: "image/bmp",
+      svg: "image/svg+xml",
+      mp3: "audio/mpeg",
+      mp4: "video/mp4",
+      wav: "audio/wav",
+      zip: "application/zip",
+      csv: "text/csv",
+    };
+
+    return mimeTypes[extension] || "application/octet-stream";
+  }
+
+  /**
+   * Converts Uint8Array to base64 string
+   */
+  private uint8ArrayToBase64(array: Uint8Array): string {
+    let binary = "";
+    const chunkSize = 1000; // Process in smaller chunks to avoid call stack issues
+
+    for (let i = 0; i < array.length; i += chunkSize) {
+      // Convert each chunk of bytes to string characters
+      binary += String.fromCharCode.apply(
+        null,
+        Array.from(array.subarray(i, i + chunkSize))
+      );
+    }
+
+    return window.btoa(binary);
   }
 
   /**
