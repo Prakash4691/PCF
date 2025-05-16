@@ -18,9 +18,8 @@ export class MultipleFileUploader
   private fileDataValue = "";
   private existingFileNames: string[] = [];
   private isUploading = false;
-  //private uploadProgress = 0;
   private uploadMessage: { text: string; type: MessageBarType } | null = null;
-  private filesUploaded = false; // New state variable to track if files have been uploaded
+  private filesUploaded = false;
   private context: ComponentFramework.Context<IInputs>;
   private parentRecordId: string;
   private operationType: string;
@@ -251,7 +250,6 @@ export class MultipleFileUploader
     let errorMessage: string = null;
     // Disable button immediately
     this.isUploading = true;
-    //this.uploadProgress = 0;
     this.uploadMessage = null;
     this.operationType = "Creating Notes...";
     this.notifyOutputChanged();
@@ -262,10 +260,6 @@ export class MultipleFileUploader
         (fileWithContent) => !fileWithContent.isExisting
       );
       if (filesToUpload.length === 0) {
-        /* this.uploadMessage = {
-          text: "No files to upload. Please add new files.",
-          type: MessageBarType.warning,
-        }; */
         this.isUploading = false;
         this.notifyOutputChanged();
         return;
@@ -274,10 +268,6 @@ export class MultipleFileUploader
       // Get the parent record ID and entity name
       const parentEntityName = this.context.parameters.parentEntityName.raw;
       if (!parentEntityName) {
-        /* this.uploadMessage = {
-          text: "Parent entity name not specified. Please check control configuration.",
-          type: MessageBarType.error,
-        }; */
         this.isUploading = false;
         this.notifyOutputChanged();
         return;
@@ -285,10 +275,6 @@ export class MultipleFileUploader
 
       const recordId = this.parentRecordId;
       if (!recordId) {
-        /* this.uploadMessage = {
-          text: "Could not determine parent record ID. Please ensure you're on a saved record.",
-          type: MessageBarType.error,
-        }; */
         this.isUploading = false;
         this.notifyOutputChanged();
         return;
@@ -297,7 +283,6 @@ export class MultipleFileUploader
       // Process each file one by one, updating progress as we go
       const totalFiles = filesToUpload.length;
       let completedFiles = 0;
-      //let successfullyUploadedFiles: string[] = [];
       const filesWithNotesId: FileWithContent[] = [];
       for (const fileWithContent of filesToUpload) {
         try {
@@ -347,56 +332,12 @@ export class MultipleFileUploader
       console.error("Error in file upload process:", error);
       this.isUploading = false;
       this.uploadMessage = {
-        text: `Error in file upload process:${(error as Error).message}`,
+        text: `Error in file upload process: ${(error as Error).message}`,
         type: MessageBarType.error,
       };
+      this.notifyOutputChanged();
     }
   };
-
-  /**
-   * Helper function to simulate smooth progress updates during API calls
-   * @param startProgress The starting progress value (0-1)
-   * @param maxIncrement The maximum amount to increment (0-1)
-   * @param interval Update interval in ms
-   * @param callback Function to call with updated progress
-   * @returns Object with stop method to cancel the updates
-   */
-  private simulateProgressDuringUpload(
-    startProgress: number,
-    maxIncrement: number,
-    interval: number,
-    callback: (progress: number) => void
-  ): { stop: () => void } {
-    let currentProgress = startProgress;
-    const targetProgress = startProgress + maxIncrement * 0.9; // Leave some room for final completion
-    let timeoutId: number | null = null;
-
-    const updateProgress = () => {
-      // Calculate increment based on how far we are from target
-      // Start with larger increments, get smaller as we approach target
-      const remainingProgress = targetProgress - currentProgress;
-      const increment = Math.max(remainingProgress * 0.1, 0.001); // At least 0.1% increment
-
-      if (currentProgress < targetProgress) {
-        currentProgress = Math.min(currentProgress + increment, targetProgress);
-        callback(currentProgress);
-        timeoutId = window.setTimeout(updateProgress, interval);
-      }
-    };
-
-    // Start the updates
-    timeoutId = window.setTimeout(updateProgress, interval);
-
-    // Return a function to stop the updates
-    return {
-      stop: () => {
-        if (timeoutId !== null) {
-          clearTimeout(timeoutId);
-          timeoutId = null;
-        }
-      },
-    };
-  }
 
   /**
    * Creates a note record with the file as an attachment
@@ -472,8 +413,6 @@ export class MultipleFileUploader
     return {
       fileData: this.fileDataValue,
       isUploading: this.isUploading,
-      /*  uploadProgress: this.uploadProgress,
-      uploadMessage: this.uploadMessage, */
     };
   }
 

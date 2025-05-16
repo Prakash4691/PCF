@@ -26,7 +26,6 @@ interface FileUploaderComponentProps {
   onSubmitFiles: () => void;
   context: ComponentFramework.Context<IInputs>;
   isUploading: boolean;
-  uploadProgress?: number;
   uploadMessage?: { text: string; type: MessageBarType } | null;
   hasExistingFiles: boolean;
   filesUploaded: boolean;
@@ -55,7 +54,6 @@ export const FileUploaderComponent: React.FC<FileUploaderComponentProps> = (
     onSubmitFiles,
     context,
     isUploading,
-    uploadProgress,
     uploadMessage,
     hasExistingFiles,
     filesUploaded,
@@ -219,7 +217,6 @@ export const FileUploaderComponent: React.FC<FileUploaderComponentProps> = (
   };
 
   const handlePickFilesClick = async () => {
-    const files: File[] = [];
     try {
       const fileObjs = await context.device.pickFile({
         accept: "*",
@@ -369,7 +366,7 @@ export const FileUploaderComponent: React.FC<FileUploaderComponentProps> = (
                                   marginRight: "4px",
                                 }}
                               />
-                              {fileInfo.isExistingFile && fileInfo.sizeText}
+                              {fileInfo.sizeText}
                             </span>
                           </TooltipHost>
                         )}
@@ -398,7 +395,6 @@ export const FileUploaderComponent: React.FC<FileUploaderComponentProps> = (
             })}
           </div>
 
-          {/* Upload Status and Button Section */}
           <div className="upload-section">
             {isUploading && (
               <div className="progress-container">
@@ -408,12 +404,6 @@ export const FileUploaderComponent: React.FC<FileUploaderComponentProps> = (
                   labelPosition="right"
                   styles={{ label: { marginLeft: "8px" } }}
                 />
-                {/* <div
-                  className="progress-text"
-                  style={{ marginTop: "4px", textAlign: "center" }}
-                >
-                  {`${Math.round(uploadProgress * 100)}% complete`}
-                </div> */}
               </div>
             )}
 
@@ -430,13 +420,6 @@ export const FileUploaderComponent: React.FC<FileUploaderComponentProps> = (
             <div className="submit-button-container">
               <PrimaryButton
                 text={isUploading ? "Uploading..." : "Upload Files"}
-                /*  onClick={async () => {
-                  try {
-                    await onSubmitFiles();
-                  } catch (error) {
-                    console.error("Error in upload:", error);
-                  }
-                }}*/
                 onClick={onSubmitFiles}
                 disabled={
                   isUploading ||
