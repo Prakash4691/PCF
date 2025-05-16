@@ -9,6 +9,12 @@ import { TooltipHost } from "@fluentui/react/lib/Tooltip";
 import { PrimaryButton } from "@fluentui/react/lib/Button";
 import { Spinner, SpinnerSize } from "@fluentui/react/lib/Spinner";
 import { MessageBar, MessageBarType } from "@fluentui/react/lib/MessageBar";
+import {
+  Dialog,
+  DialogType,
+  DialogFooter,
+  DefaultButton,
+} from "@fluentui/react";
 
 // Initialize the FluentUI icons
 initializeIcons();
@@ -25,6 +31,9 @@ interface FileUploaderComponentProps {
   hasExistingFiles: boolean;
   filesUploaded: boolean;
   operationType?: string;
+  maxFileSizeForAttachment: number;
+  blockedFileExtension: string;
+  showDialog?: { title: string; subText: string } | null;
 }
 
 interface FileInfo {
@@ -51,9 +60,24 @@ export const FileUploaderComponent: React.FC<FileUploaderComponentProps> = (
     hasExistingFiles,
     filesUploaded,
     operationType,
+    maxFileSizeForAttachment,
+    blockedFileExtension,
+    showDialog,
   } = props;
   const [isDragging, setIsDragging] = React.useState(false);
   const [hasOverflow, setHasOverflow] = React.useState(false);
+  const [showDeleteDialog, setShowDeleteDialog] = React.useState(false);
+  const [fileToDeleteIndex, setFileToDeleteIndex] = React.useState<
+    number | null
+  >(null);
+  const [showSizeLimitDialog, setShowSizeLimitDialog] = React.useState(false);
+  const [dialogContent, setDialogContent] = React.useState<{
+    title: string;
+    subText: string;
+  }>({
+    title: "",
+    subText: "",
+  });
   const fileInputRef = React.useRef<HTMLInputElement>(null);
   const fileGridRef = React.useRef<HTMLDivElement>(null);
 
@@ -72,9 +96,18 @@ export const FileUploaderComponent: React.FC<FileUploaderComponentProps> = (
     return () => window.removeEventListener("resize", checkOverflow);
   }, [selectedFiles]);
 
+  // Effect to handle dialog visibility when showDialog prop changes
+  React.useEffect(() => {
+    if (showDialog) {
+      setDialogContent(showDialog);
+      setShowSizeLimitDialog(true);
+    }
+  }, [showDialog]);
+
   const getFileInfo = (file: File): FileInfo => {
     const fileExtension = file.name.split(".").pop()?.toLowerCase() || "";
-    const sizeMb = (file.size / 1024 / 1024).toFixed(2);
+    const sizeKb = (file.size / 1024).toFixed(2); // size in KB
+    const sizeMb = (file.size / (1024 * 1024)).toFixed(2); // size in MB
     let fileType = file.type;
     let icon = "Document";
     // If file size is very small (1 byte), mark as existing file (dummy file)
@@ -134,7 +167,7 @@ export const FileUploaderComponent: React.FC<FileUploaderComponentProps> = (
     } else if (file.size < 1024) {
       sizeText = `${file.size} B`;
     } else if (file.size < 1024 * 1024) {
-      sizeText = `${(file.size / 1024).toFixed(2)} KB`;
+      sizeText = `${sizeKb} KB`;
     } else {
       sizeText = `${sizeMb} MB`;
     }
@@ -186,25 +219,79 @@ export const FileUploaderComponent: React.FC<FileUploaderComponentProps> = (
   };
 
   const handlePickFilesClick = async () => {
+    const files: File[] = [];
     try {
       const fileObjs = await context.device.pickFile({
         accept: "*",
         allowMultipleFiles: true,
-        maximumAllowedFileSize: 10485760, // 10MB - typical Dataverse attachment limit
+        maximumAllowedFileSize: maxFileSizeForAttachment,
       });
       if (fileObjs && fileObjs.length > 0) {
-        const files: File[] = [];
+        // Parse blocked file extensions from comma-separated string
+        const blockedExtensions = blockedFileExtension
+          ? blockedFileExtension
+              .split(";")
+              .map((ext: string) => ext.trim().toLowerCase())
+          : [];
+
+        // Filter out invalid files
+        const validFiles: File[] = [];
+        const invalidFiles: { file: File; reason: string }[] = [];
+
         for (const fileObj of fileObjs) {
-          // Create a File object from the FileObject
           const file = new File([fileObj.fileContent], fileObj.fileName, {
             type: fileObj.mimeType,
           });
-          files.push(file);
+          const fileExtension = file.name.split(".").pop()?.toLowerCase() || "";
+
+          // Check if file extension is blocked
+          if (blockedExtensions.includes(fileExtension)) {
+            invalidFiles.push({
+              file,
+              reason: `File type .${fileExtension} is not allowed`,
+            });
+            continue;
+          }
+
+          validFiles.push(file);
         }
-        onFilesSelected(files);
+
+        // Process valid files
+        if (validFiles.length > 0) {
+          onFilesSelected(validFiles);
+        }
+
+        // Show error message for invalid files
+        if (invalidFiles.length > 0) {
+          const errorMessages = invalidFiles.map(
+            (invalid) => `${invalid.file.name}: ${invalid.reason}`
+          );
+
+          setDialogContent({
+            title: "Blocked File Type",
+            subText: `The following file(s) have blocked extensions: ${errorMessages.join(
+              "; "
+            )}. Please select files with allowed extensions.`,
+          });
+          setShowSizeLimitDialog(true);
+        }
+      } else {
+        setDialogContent({
+          title: "File Size Limit Exceeded",
+          subText: `The selected file(s) exceed the maximum allowed size of ${(
+            maxFileSizeForAttachment / 1024
+          ).toLocaleString()} KB (${maxFileSizeForAttachment.toLocaleString()} bytes). Please select smaller files.`,
+        });
+        setShowSizeLimitDialog(true);
       }
     } catch (error) {
-      console.error("Error picking files:", error);
+      setDialogContent({
+        title: "File Size Limit Exceeded",
+        subText: `The selected file(s) exceed the maximum allowed size of ${(
+          maxFileSizeForAttachment / 1024
+        ).toLocaleString()} KB (${maxFileSizeForAttachment.toLocaleString()} bytes). Please select smaller files.`,
+      });
+      setShowSizeLimitDialog(true);
     }
   };
 
@@ -273,13 +360,16 @@ export const FileUploaderComponent: React.FC<FileUploaderComponentProps> = (
                       <Text variant="small">{fileInfo.fileType}</Text>
                       <Text variant="small" className="file-size">
                         {fileInfo.isExistingFile && (
-                          <TooltipHost content="This file exists in the record but needs to be uploaded to create notes">
+                          <TooltipHost content="This file exists as a notes record">
                             <span className="existing-file-indicator">
                               <Icon
                                 iconName="InfoSolid"
-                                style={{ fontSize: "10px", marginRight: "4px" }}
+                                style={{
+                                  fontSize: "10px",
+                                  marginRight: "4px",
+                                }}
                               />
-                              {fileInfo.sizeText}
+                              {fileInfo.isExistingFile && fileInfo.sizeText}
                             </span>
                           </TooltipHost>
                         )}
@@ -291,7 +381,13 @@ export const FileUploaderComponent: React.FC<FileUploaderComponentProps> = (
                     className="remove-button"
                     onClick={(e) => {
                       e.stopPropagation();
-                      onFileRemoved(index);
+                      if (fileInfo.isExistingFile) {
+                        setFileToDeleteIndex(index);
+                        setShowDeleteDialog(true);
+                      } else {
+                        // If not an existing file, delete directly without confirmation
+                        onFileRemoved(index);
+                      }
                     }}
                     title="Remove file"
                   >
@@ -355,6 +451,63 @@ export const FileUploaderComponent: React.FC<FileUploaderComponentProps> = (
             </div>
           </div>
         </>
+      )}
+
+      {showDeleteDialog && (
+        <Dialog
+          hidden={!showDeleteDialog}
+          onDismiss={() => setShowDeleteDialog(false)}
+          dialogContentProps={{
+            type: DialogType.normal,
+            title: "Confirm File Deletion",
+            closeButtonAriaLabel: "Cancel",
+            subText: `Are you sure you want to delete the file "${
+              selectedFiles[fileToDeleteIndex as number].name
+            }"?`,
+          }}
+          modalProps={{
+            isBlocking: true,
+            styles: { main: { maxWidth: 450 } },
+          }}
+        >
+          <DialogFooter>
+            <PrimaryButton
+              onClick={() => {
+                onFileRemoved(fileToDeleteIndex as number);
+                setShowDeleteDialog(false);
+              }}
+              text="Delete"
+            />
+            <DefaultButton
+              onClick={() => setShowDeleteDialog(false)}
+              text="Cancel"
+            />
+          </DialogFooter>
+        </Dialog>
+      )}
+
+      {showSizeLimitDialog && (
+        <Dialog
+          hidden={!showSizeLimitDialog}
+          onDismiss={() => setShowSizeLimitDialog(false)}
+          dialogContentProps={{
+            type: DialogType.normal,
+            title: dialogContent.title,
+            closeButtonAriaLabel: "Close",
+            subText: dialogContent.subText,
+          }}
+          modalProps={{
+            isBlocking: true,
+            styles: { main: { maxWidth: 450 } },
+          }}
+        >
+          <DialogFooter>
+            <DefaultButton
+              onClick={() => setShowSizeLimitDialog(false)}
+              text="OK"
+            />
+          </DialogFooter>
+        </Dialog>
       )}
     </div>
   );

@@ -24,6 +24,9 @@ export class MultipleFileUploader
   private context: ComponentFramework.Context<IInputs>;
   private parentRecordId: string;
   private operationType: string;
+  private blockedFileExtension = "";
+  private maxFileSizeForAttachment: number;
+  private showDialog: { title: string; subText: string } | null = null;
 
   /**
    * Used to initialize the control instance. Controls can kick off remote server calls and other initialization actions here.
@@ -46,6 +49,12 @@ export class MultipleFileUploader
     }
 
     this.parentRecordId = context.parameters.parentRecordId.raw;
+    this.blockedFileExtension =
+      context.parameters.blockedFileExtension.raw ?? "";
+    this.maxFileSizeForAttachment = context.parameters.maxFileSizeForAttachment
+      .raw
+      ? parseInt(context.parameters.maxFileSizeForAttachment.raw) * 1024
+      : 0;
   }
 
   /**
@@ -135,12 +144,14 @@ export class MultipleFileUploader
       onFileRemoved: this.onFileRemoved,
       onSubmitFiles: this.onSubmitFiles,
       context: context,
-      isUploading: this.isUploading, // Consider both states for button disabling
-      //uploadProgress: this.uploadProgress,
+      isUploading: this.isUploading,
       uploadMessage: this.uploadMessage,
       hasExistingFiles: this.existingFileNames.length > 0,
       filesUploaded: this.filesUploaded,
       operationType: this.operationType,
+      maxFileSizeForAttachment: this.maxFileSizeForAttachment,
+      blockedFileExtension: this.blockedFileExtension,
+      showDialog: this.showDialog,
     });
   }
   /**
@@ -148,6 +159,7 @@ export class MultipleFileUploader
    * @param files The selected files
    */
   private onFilesSelected = async (files: File[]): Promise<void> => {
+    // Process valid files
     const newFiles = await Promise.all(
       files.map(async (file) => ({
         file,
@@ -156,9 +168,8 @@ export class MultipleFileUploader
       }))
     );
     this.selectedFiles = [...this.selectedFiles, ...newFiles];
-    this.filesUploaded = false;
-    this.uploadMessage = null;
     this.updateFileDataValue();
+    this.filesUploaded = false;
     this.notifyOutputChanged();
   };
 
@@ -174,35 +185,51 @@ export class MultipleFileUploader
       this.operationType = "Deleting Notes...";
       this.isUploading = true;
       this.notifyOutputChanged();
-      // If it's an existing file, remove it from existingFileNames array
-      const fileName = removedFile.file.name;
-      this.existingFileNames = this.existingFileNames.filter(
-        (name) => name !== fileName
-      );
 
-      // delete record from dataverse for annotation record
-      if (removedFile.notesId) {
-        this.context.webAPI.deleteRecord("annotation", removedFile.notesId);
+      try {
+        // If it's an existing file, remove it from existingFileNames array
+        const fileName = removedFile.file.name;
+        this.existingFileNames = this.existingFileNames.filter(
+          (name) => name !== fileName
+        );
+
+        // Delete record from dataverse for annotation record
+        if (removedFile.notesId) {
+          await this.context.webAPI.deleteRecord(
+            "annotation",
+            removedFile.notesId
+          );
+        }
+
+        // Remove the file from selectedFiles array
+        this.selectedFiles = [
+          ...this.selectedFiles.slice(0, index),
+          ...this.selectedFiles.slice(index + 1),
+        ];
+
+        this.updateFileDataValue();
+        this.isUploading = false;
+        this.uploadMessage = {
+          text: `Successfully deleted notes for ${fileName}`,
+          type: MessageBarType.success,
+        };
+      } catch (error) {
+        console.error("Error deleting file:", error);
+        this.isUploading = false;
+        this.uploadMessage = {
+          text: `Error deleting file: ${(error as Error).message}`,
+          type: MessageBarType.error,
+        };
       }
-
-      await new Promise((resolve) => {
-        setTimeout(() => {
-          this.isUploading = false;
-          this.uploadMessage = {
-            text: `Successfully deleted notes for ${fileName}`,
-            type: MessageBarType.success,
-          };
-          resolve(true);
-        }, 2000);
-      });
+    } else {
+      // For non-existing files, just remove from the array
+      this.selectedFiles = [
+        ...this.selectedFiles.slice(0, index),
+        ...this.selectedFiles.slice(index + 1),
+      ];
+      this.updateFileDataValue();
     }
 
-    this.selectedFiles = [
-      ...this.selectedFiles.slice(0, index),
-      ...this.selectedFiles.slice(index + 1),
-    ];
-
-    this.updateFileDataValue();
     this.notifyOutputChanged();
   };
 
@@ -221,6 +248,7 @@ export class MultipleFileUploader
    * @returns Promise that resolves when the upload is complete
    */
   private onSubmitFiles = async (): Promise<void> => {
+    let errorMessage: string = null;
     // Disable button immediately
     this.isUploading = true;
     //this.uploadProgress = 0;
@@ -270,21 +298,9 @@ export class MultipleFileUploader
       const totalFiles = filesToUpload.length;
       let completedFiles = 0;
       //let successfullyUploadedFiles: string[] = [];
-      let filesWithNotesId: FileWithContent[] = [];
+      const filesWithNotesId: FileWithContent[] = [];
       for (const fileWithContent of filesToUpload) {
         try {
-          // First update the message and progress before starting the upload
-          /* this.uploadMessage = {
-            text: `Creating note for ${fileWithContent.file.name} (${
-              completedFiles + 1
-            }/${totalFiles})...`,
-            type: MessageBarType.info,
-          };
-          // Calculate progress for the current file (divide each file upload into two parts)
-          this.uploadProgress = completedFiles / totalFiles;
-          this.notifyOutputChanged(); */
-
-          // Create note record with attachment
           const notesId = await this.createNoteWithAttachment(
             fileWithContent,
             recordId,
@@ -292,51 +308,16 @@ export class MultipleFileUploader
           );
 
           fileWithContent.notesId = notesId; // Store the notesId in the fileWithContent object
-
-          // Update message and progress after successful creation
-          /* this.uploadMessage = {
-            text: `Successfully created note for ${
-              fileWithContent.file.name
-            } (${completedFiles + 1}/${totalFiles})`,
-            type: MessageBarType.success,
-          };
-          // Update progress to show this file is complete
-          this.uploadProgress = (completedFiles + 1) / totalFiles;
-          this.notifyOutputChanged(); */
-
-          // Add to successful uploads list
-          //successfullyUploadedFiles.push(fileWithContent.file.name);
           filesWithNotesId.push(fileWithContent);
           completedFiles++;
         } catch (fileError) {
-          console.error(
-            `Error uploading file ${fileWithContent.file.name}:`,
-            fileError
-          );
-          /* this.uploadMessage = {
-            text: `Error uploading ${fileWithContent.file.name}: ${
-              (fileError as Error).message
-            }`,
-            type: MessageBarType.error,
-          };
-          this.notifyOutputChanged(); */
+          errorMessage = `Error uploading ${fileWithContent.file.name}: ${
+            (fileError as Error).message
+          }`;
         }
       }
 
       this.filesUploaded = true;
-      //this.uploadProgress = 1;
-
-      // Short delay to show the last file's success message
-      //await new Promise((resolve) => setTimeout(resolve, 1000));
-
-      // Remove failed files from selectedFiles array
-      //const newAndExistingFiles = [...this.selectedFiles, ...filesWithNotesId];
-      /* this.selectedFiles = newAndExistingFiles.filter(
-        (file) =>
-          file.isExisting 
-        || // Keep existing files
-          successfullyUploadedFiles.includes(file.file.name) // Keep only successfully uploaded new files
-      ); */
 
       this.selectedFiles = this.selectedFiles.filter(
         (file) =>
@@ -344,29 +325,31 @@ export class MultipleFileUploader
           filesWithNotesId.some((f) => f.file.name === file.file.name)
       );
 
+      const successfullyUploadedFiles = this.selectedFiles.map(
+        (file) => file.file.name
+      );
       this.isUploading = false;
-      this.parseExistingFieldValue(this.context.parameters.fileData.raw);
-      this.notifyOutputChanged();
+      this.parseExistingFieldValue(successfullyUploadedFiles.join(","));
 
       this.uploadMessage = {
         text: `Successfully created notes for ${completedFiles} of ${totalFiles} files${
           completedFiles < totalFiles
-            ? `. Failed files have been removed from the list.`
+            ? `. Failed files have been removed from the list because ${errorMessage}`
             : ""
         }`,
         type:
-          completedFiles === totalFiles
+          completedFiles === totalFiles && !errorMessage
             ? MessageBarType.success
-            : MessageBarType.warning,
+            : MessageBarType.error,
       };
+      this.notifyOutputChanged();
     } catch (error) {
       console.error("Error in file upload process:", error);
       this.isUploading = false;
-      /* this.uploadMessage = {
-        text: `Error uploading files: ${(error as Error).message}`,
+      this.uploadMessage = {
+        text: `Error in file upload process:${(error as Error).message}`,
         type: MessageBarType.error,
       };
-      this.notifyOutputChanged(); */
     }
   };
 
