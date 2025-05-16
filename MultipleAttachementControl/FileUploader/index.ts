@@ -10,6 +10,23 @@ interface FileWithContent {
   notesId?: string;
 }
 
+/**
+ * Properly converts an ArrayBuffer to a base64 string
+ * This is crucial for binary files like PDFs and Office documents
+ */
+function arrayBufferToBase64(buffer: ArrayBuffer): string {
+  const bytes = new Uint8Array(buffer);
+  let binary = "";
+  // Process in chunks (e.g. 1000 bytes at a time) to avoid call-stack or performance issues
+  const chunkSize = 1000;
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    // Convert each chunk of bytes into characters
+    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunkSize));
+  }
+  // Encode the combined binary string as base64
+  return window.btoa(binary);
+}
+
 export class MultipleFileUploader
   implements ComponentFramework.ReactControl<IInputs, IOutputs>
 {
@@ -153,23 +170,41 @@ export class MultipleFileUploader
       showDialog: this.showDialog,
     });
   }
+
   /**
    * Called when the user selects files
-   * @param files The selected files
+   * Properly reads files as ArrayBuffer and converts to base64
    */
   private onFilesSelected = async (files: File[]): Promise<void> => {
-    // Process valid files
-    const newFiles = await Promise.all(
-      files.map(async (file) => ({
-        file,
-        content: await this.readFileAsBase64(file),
-        isExisting: false,
-      }))
-    );
-    this.selectedFiles = [...this.selectedFiles, ...newFiles];
-    this.updateFileDataValue();
-    this.filesUploaded = false;
-    this.notifyOutputChanged();
+    try {
+      // Process each file to get its base64 content
+      const newFiles = await Promise.all(
+        files.map(async (file) => {
+          try {
+            // Read the file as base64 using our helper method
+            const content = await this.readFileAsBase64(file);
+            return { file, content, isExisting: false };
+          } catch (error) {
+            console.error(`Error processing file ${file.name}:`, error);
+            // Return the file without content - will be read again later if needed
+            return { file, isExisting: false };
+          }
+        })
+      );
+
+      // Add the new files to our collection
+      this.selectedFiles = [...this.selectedFiles, ...newFiles];
+      this.updateFileDataValue();
+      this.filesUploaded = false;
+      this.notifyOutputChanged();
+    } catch (error) {
+      console.error("Error in onFilesSelected:", error);
+      this.uploadMessage = {
+        text: `Error processing selected files: ${(error as Error).message}`,
+        type: MessageBarType.error,
+      };
+      this.notifyOutputChanged();
+    }
   };
 
   /**
@@ -296,6 +331,10 @@ export class MultipleFileUploader
           filesWithNotesId.push(fileWithContent);
           completedFiles++;
         } catch (fileError) {
+          console.error(
+            `Error uploading ${fileWithContent.file.name}:`,
+            fileError
+          );
           errorMessage = `Error uploading ${fileWithContent.file.name}: ${
             (fileError as Error).message
           }`;
@@ -341,9 +380,7 @@ export class MultipleFileUploader
 
   /**
    * Creates a note record with the file as an attachment
-   * @param fileWithContent The file with content to attach
-   * @param parentId The parent record ID
-   * @param parentEntityName The parent entity logical name
+   * This is the crucial method for proper file handling
    */
   private async createNoteWithAttachment(
     fileWithContent: FileWithContent,
@@ -351,57 +388,131 @@ export class MultipleFileUploader
     parentEntityName: string
   ): Promise<string> {
     try {
-      const fileContent =
-        fileWithContent.content ||
-        (await this.readFileAsBase64(fileWithContent.file)); // Create annotation (note) record
+      // If content is not already available, read it
+      let fileContent = fileWithContent.content;
+      if (!fileContent) {
+        console.log(`Reading content for file: ${fileWithContent.file.name}`);
+        fileContent = await this.readFileAsBase64(fileWithContent.file);
+      }
+
+      // Validate content
+      if (!fileContent || fileContent.length === 0) {
+        throw new Error(
+          `Failed to get content for file: ${fileWithContent.file.name}`
+        );
+      }
+
+      // Get the file name and determine MIME type
+      const fileName = fileWithContent.file.name;
+      const fileExtension = fileName.split(".").pop()?.toLowerCase() || "";
+
+      // Map file extensions to their proper MIME types
+      let mimeType: string;
+      switch (fileExtension) {
+        case "pdf":
+          mimeType = "application/pdf";
+          break;
+        case "doc":
+          mimeType = "application/msword";
+          break;
+        case "docx":
+          mimeType =
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+          break;
+        case "xls":
+          mimeType = "application/vnd.ms-excel";
+          break;
+        case "xlsx":
+          mimeType =
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+          break;
+        case "ppt":
+          mimeType = "application/vnd.ms-powerpoint";
+          break;
+        case "pptx":
+          mimeType =
+            "application/vnd.openxmlformats-officedocument.presentationml.presentation";
+          break;
+        case "txt":
+          mimeType = "text/plain";
+          break;
+        default:
+          mimeType = fileWithContent.file.type || "application/octet-stream";
+      }
+
+      // Log key information for debugging
+      console.log(
+        `Creating note with attachment: ${fileName}, MIME: ${mimeType}, Size: ${fileWithContent.file.size} bytes, Base64 length: ${fileContent.length}`
+      );
+
+      // Create the annotation entity
       const entity = {
-        subject: fileWithContent.file.name,
-        notetext: `Attachment: ${fileWithContent.file.name}`,
-        filename: fileWithContent.file.name,
-        mimetype: fileWithContent.file.type || "application/octet-stream",
-        documentbody: fileContent,
+        subject: fileName,
+        notetext: `Attachment: ${fileName}`,
+        filename: fileName,
+        mimetype: mimeType,
+        documentbody: fileContent, // The base64 encoded file content
+        isdocument: true,
+        filesize: fileWithContent.file.size,
         objecttypecode: parentEntityName,
         [`objectid_${parentEntityName}@odata.bind`]: `/${parentEntityName}s(${parentId})`,
       };
 
-      // Use Web API to create note
+      // Create the annotation record
       const notes = await this.context.webAPI.createRecord(
         "annotation",
         entity
       );
+      console.log(`Successfully created note with ID: ${notes.id}`);
 
-      return notes.id; // Return the ID of the created note
+      return notes.id;
     } catch (error) {
-      console.error("Error creating note with attachment:", error);
+      console.error(
+        `Error creating note with attachment for ${fileWithContent.file.name}:`,
+        error
+      );
       throw error;
     }
   }
 
   /**
-   * Reads a file and returns its content as base64
-   * @param file The file to read
-   * @returns Promise with base64 content
+   * Reads a file and returns its content as base64 string
+   * This is the core method for handling binary files properly
    */
   private readFileAsBase64(file: File): Promise<string> {
     return new Promise((resolve, reject) => {
+      // Log file information for debugging
+      console.log(
+        `Reading file: ${file.name}, type: ${file.type}, size: ${file.size} bytes`
+      );
+
       const reader = new FileReader();
 
       reader.onload = () => {
-        if (reader.result) {
-          // Extract base64 data (remove data:*/*;base64, prefix)
-          const base64Content = reader.result.toString();
-          const base64Data = base64Content.split(",")[1] || base64Content;
-          resolve(base64Data);
-        } else {
-          reject(new Error("Failed to read file"));
+        try {
+          if (!reader.result) {
+            reject(new Error("FileReader result is null"));
+            return;
+          }
+
+          const base64 = arrayBufferToBase64(reader.result as ArrayBuffer);
+
+          alert(base64);
+
+          resolve(base64);
+        } catch (error) {
+          console.error(`Error converting ${file.name} to base64:`, error);
+          reject(error);
         }
       };
 
       reader.onerror = () => {
+        console.error(`FileReader error for ${file.name}:`, reader.error);
         reject(reader.error);
       };
 
-      reader.readAsDataURL(file);
+      // Always read as ArrayBuffer for binary files
+      reader.readAsArrayBuffer(file);
     });
   }
 

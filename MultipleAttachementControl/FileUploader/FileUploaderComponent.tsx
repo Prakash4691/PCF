@@ -236,9 +236,13 @@ export const FileUploaderComponent: React.FC<FileUploaderComponentProps> = (
         const invalidFiles: { file: File; reason: string }[] = [];
 
         for (const fileObj of fileObjs) {
+          // Create file with proper binary content
+          // The fileContent from device.pickFile is already a binary blob
           const file = new File([fileObj.fileContent], fileObj.fileName, {
-            type: fileObj.mimeType,
+            type:
+              fileObj.mimeType || getMimeTypeFromExtension(fileObj.fileName),
           });
+
           const fileExtension = file.name.split(".").pop()?.toLowerCase() || "";
 
           // Check if file extension is blocked
@@ -290,6 +294,30 @@ export const FileUploaderComponent: React.FC<FileUploaderComponentProps> = (
       });
       setShowSizeLimitDialog(true);
     }
+  };
+
+  // Helper function to get MIME type from file extension
+  const getMimeTypeFromExtension = (fileName: string): string => {
+    const extension = fileName.split(".").pop()?.toLowerCase() || "";
+
+    // Map common extensions to mime types
+    if (["jpg", "jpeg"].includes(extension)) return "image/jpeg";
+    if (extension === "png") return "image/png";
+    if (extension === "gif") return "image/gif";
+    if (extension === "pdf") return "application/pdf";
+    if (extension === "doc") return "application/msword";
+    if (extension === "docx")
+      return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+    if (extension === "xls") return "application/vnd.ms-excel";
+    if (extension === "xlsx")
+      return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+    if (extension === "ppt") return "application/vnd.ms-powerpoint";
+    if (extension === "pptx")
+      return "application/vnd.openxmlformats-officedocument.presentationml.presentation";
+    if (extension === "txt") return "text/plain";
+
+    // Default
+    return "application/octet-stream";
   };
 
   return (
