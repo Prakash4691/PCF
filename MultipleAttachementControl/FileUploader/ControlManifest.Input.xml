@@ -9,6 +9,7 @@
     <property name="maxFileSizeForAttachment" display-name-key="Max File Size For Attachment" description-key="Maximum file size allowed for attachment (in bytes)" of-type="SingleLine.Text" usage="input" required="true" />
     <property name="parentEntityName" display-name-key="Parent Entity Name" description-key="Logical name of the parent entity to associate notes with" of-type="SingleLine.Text" usage="input" required="true" />
     <property name="parentRecordId" display-name-key="Parent Entity RecordId" description-key="GUID of the parent entity record to associate notes with" of-type="SingleLine.Text" usage="bound" required="true" />
+    <property name="showDialog" display-name-key="Show Dialog" description-key="Output property to trigger a dialog with a title and message" of-type="TwoOptions" usage="output" required="false" />
     <resources>
       <code path="index.ts" order="1"/>
       <css path="css/FileUploader.css" order="1" />

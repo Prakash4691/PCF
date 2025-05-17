@@ -7,7 +7,7 @@ interface FileWithContent {
   file: File;
   content?: string;
   isExisting: boolean;
-  notesId?: string;
+  notesId?: string | Promise<string>;
 }
 
 /**
@@ -41,7 +41,7 @@ export class MultipleFileUploader
   private operationType: string;
   private blockedFileExtension = "";
   private maxFileSizeForAttachment: number;
-  private showDialog: { title: string; subText: string } | null = null;
+  private showDialog: boolean;
 
   /**
    * Used to initialize the control instance. Controls can kick off remote server calls and other initialization actions here.
@@ -70,6 +70,7 @@ export class MultipleFileUploader
       .raw
       ? parseInt(context.parameters.maxFileSizeForAttachment.raw) * 1024
       : 0;
+    this.showDialog = false;
   }
 
   /**
@@ -95,36 +96,17 @@ export class MultipleFileUploader
   private createDummyFiles(): void {
     if (this.existingFileNames.length === 0) return;
 
-    // For each file name, create a dummy File object with appropriate metadata
     const dummyFiles: FileWithContent[] = this.existingFileNames.map(
       (fileName) => {
-        // Get file extension to determine mime type
         const extension = fileName.split(".").pop()?.toLowerCase() || "";
         const mimeType: string = this.inferMimeTypeFromFileName(extension);
-        /*  let mimeType = "application/octet-stream";
 
-        // Map common extensions to mime types
-        if (["jpg", "jpeg", "png", "gif", "bmp", "webp"].includes(extension)) {
-          mimeType = `image/${extension === "jpg" ? "jpeg" : extension}`;
-        } else if (extension === "pdf") {
-          mimeType = "application/pdf";
-        } else if (["doc", "docx"].includes(extension)) {
-          mimeType = "application/msword";
-        } else if (["xls", "xlsx"].includes(extension)) {
-          mimeType = "application/vnd.ms-excel";
-        } else if (["ppt", "pptx"].includes(extension)) {
-          mimeType = "application/vnd.ms-powerpoint";
-        } else if (extension === "txt") {
-          mimeType = "text/plain";
-        } */
-
-        // Create a small placeholder file with the given name and mime type
         const file = new File([new ArrayBuffer(1)], fileName, {
           type: mimeType,
         });
         const notesId =
           this.selectedFiles.find((f) => f.file.name === fileName)?.notesId ||
-          "";
+          this.getNotesId(fileName);
         return { file, isExisting: true, notesId };
       }
     );
@@ -132,6 +114,15 @@ export class MultipleFileUploader
     // Add the dummy files to the selectedFiles array
     this.selectedFiles = dummyFiles;
     this.updateFileDataValue();
+  }
+
+  private async getNotesId(fileName: string): Promise<string> {
+    const notes = await this.context.webAPI.retrieveMultipleRecords(
+      "annotation",
+      `?$select=annotationid&$filter=subject eq '${fileName}' and _objectid_value eq ${this.context.parameters.parentRecordId.raw}`
+    );
+    const notesId = notes.entities[0]["annotationid"];
+    return notesId as string;
   }
 
   /**
@@ -167,7 +158,7 @@ export class MultipleFileUploader
       operationType: this.operationType,
       maxFileSizeForAttachment: this.maxFileSizeForAttachment,
       blockedFileExtension: this.blockedFileExtension,
-      showDialog: this.showDialog,
+      showDialog: null,
     });
   }
 
@@ -176,16 +167,39 @@ export class MultipleFileUploader
    */
   private onFilesSelected = async (files: File[]): Promise<void> => {
     try {
-      // We no longer need to read file content here since we'll use block upload
-      const newFiles = files.map((file) => ({
-        file,
-        isExisting: false,
-      }));
+      // Check for duplicates by name and extension (case-insensitive)
+      const existingNames = this.selectedFiles.map((f) =>
+        f.file.name.toLowerCase()
+      );
+      const nonDuplicateFiles: File[] = [];
+      const duplicateFiles: File[] = [];
 
-      this.selectedFiles = [...this.selectedFiles, ...newFiles];
-      this.updateFileDataValue();
-      this.filesUploaded = false;
-      this.notifyOutputChanged();
+      for (const file of files) {
+        if (existingNames.includes(file.name.toLowerCase())) {
+          duplicateFiles.push(file);
+        } else {
+          nonDuplicateFiles.push(file);
+        }
+      }
+
+      if (duplicateFiles.length > 0) {
+        this.showDialog = true;
+        this.notifyOutputChanged();
+        return;
+      } else {
+        this.showDialog = false;
+      }
+
+      if (nonDuplicateFiles.length > 0) {
+        const newFiles = nonDuplicateFiles.map((file) => ({
+          file,
+          isExisting: false,
+        }));
+        this.selectedFiles = [...this.selectedFiles, ...newFiles];
+        this.updateFileDataValue();
+        this.filesUploaded = false;
+        this.notifyOutputChanged();
+      }
     } catch (error) {
       console.error("Error in onFilesSelected:", error);
       this.uploadMessage = {
@@ -216,12 +230,9 @@ export class MultipleFileUploader
           (name) => name !== fileName
         );
 
-        // Delete record from dataverse for annotation record
         if (removedFile.notesId) {
-          await this.context.webAPI.deleteRecord(
-            "annotation",
-            removedFile.notesId
-          );
+          const notesId = await removedFile.notesId;
+          await this.context.webAPI.deleteRecord("annotation", notesId);
         }
 
         // Remove the file from selectedFiles array
@@ -387,48 +398,12 @@ export class MultipleFileUploader
       const file = fileWithContent.file;
       const fileName = file.name;
       const fileExtension = fileName.split(".").pop()?.toLowerCase() || "";
-      const type = file.type;
-
-      // Set proper MIME type based on extension
-      //let mimeType: string;
       const mimeType: string = this.inferMimeTypeFromFileName(fileExtension);
-      /* switch (fileExtension) {
-        case "pdf":
-          mimeType = "application/pdf";
-          break;
-        case "doc":
-          mimeType = "application/msword";
-          break;
-        case "docx":
-          mimeType =
-            "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
-          break;
-        case "xls":
-          mimeType = "application/vnd.ms-excel";
-          break;
-        case "xlsx":
-          mimeType =
-            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
-          break;
-        case "ppt":
-          mimeType = "application/vnd.ms-powerpoint";
-          break;
-        case "pptx":
-          mimeType =
-            "application/vnd.openxmlformats-officedocument.presentationml.presentation";
-          break;
-        case "txt":
-          mimeType = "text/plain";
-          break;
-        default:
-          mimeType = file.type || "application/octet-stream";
-      } */
 
-      // Create the target entity for initialization
       const target = {
         filename: fileName,
         mimetype: mimeType,
-        subject: fileName + fileExtension,
+        subject: fileName,
         [`objectid_${parentEntityName}@odata.bind`]: `/${parentEntityName}s(${parentId})`,
         isdocument: true,
         documentbody: fileContent,
@@ -651,6 +626,7 @@ export class MultipleFileUploader
     return {
       fileData: this.fileDataValue,
       isUploading: this.isUploading,
+      showDialog: this.showDialog,
     };
   }
 
