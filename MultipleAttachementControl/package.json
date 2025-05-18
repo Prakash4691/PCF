@@ -35,5 +35,8 @@
     "react-dom": "16.14.0",
     "typescript": "^4.9.5",
     "typescript-eslint": "^8.18.1"
+  },
+  "dependencies": {
+    "latest": "^0.2.0"
   }
 }

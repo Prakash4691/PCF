@@ -5,10 +5,11 @@
     </external-service-usage>
     <property name="fileData" display-name-key="File Data" description-key="Data for the files to be uploaded" of-type="Multiple" usage="bound" required="true" />
     <property name="isUploading" display-name-key="Is Uploading" description-key="Whether the files are currently being uploaded" of-type="TwoOptions" usage="bound" required="true" />
-    <property name="uploadProgress" display-name-key="Upload Progress" description-key="Progress of the file upload" of-type="Whole.None" usage="output" required="false" />
-    <property name="uploadMessage" display-name-key="Upload Message" description-key="Message to display during file upload" of-type="Object" usage="output" required="false" />
+    <property name="blockedFileExtension" display-name-key="Blocked File Extension" description-key="List of blocked file extensions (comma separated)" of-type="Multiple" usage="input" required="true" />
+    <property name="maxFileSizeForAttachment" display-name-key="Max File Size For Attachment" description-key="Maximum file size allowed for attachment (in bytes)" of-type="SingleLine.Text" usage="input" required="true" />
     <property name="parentEntityName" display-name-key="Parent Entity Name" description-key="Logical name of the parent entity to associate notes with" of-type="SingleLine.Text" usage="input" required="true" />
     <property name="parentRecordId" display-name-key="Parent Entity RecordId" description-key="GUID of the parent entity record to associate notes with" of-type="SingleLine.Text" usage="bound" required="true" />
+    <property name="showDialog" display-name-key="Show Dialog" description-key="Output property to trigger a dialog with a title and message" of-type="TwoOptions" usage="output" required="false" />
     <resources>
       <code path="index.ts" order="1"/>
       <css path="css/FileUploader.css" order="1" />
