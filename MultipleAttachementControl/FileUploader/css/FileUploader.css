@@ -258,3 +258,12 @@
   color: #666;
   margin-top: 5px;
 }
+
+.hidden-file-input {
+  display: none;
+}
+
+.upload-icon {
+  font-size: 24px;
+  color: #0078d4;
+}

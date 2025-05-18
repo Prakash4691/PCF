@@ -2,29 +2,10 @@ import { IInputs, IOutputs } from "./generated/ManifestTypes";
 import * as React from "react";
 import { FileUploaderComponent } from "./FileUploaderComponent";
 import { MessageBarType } from "@fluentui/react/lib/MessageBar";
-
-interface FileWithContent {
-  file: File;
-  content?: string;
-  isExisting: boolean;
-  notesId?: string | Promise<string>;
-}
-
-/**
- * Properly converts an ArrayBuffer to a base64 string
- * This is crucial for binary files like PDFs and Office documents
- */
-function arrayBufferToBase64(buffer: ArrayBuffer): string {
-  let binary = "";
-  const bytes = new Uint8Array(buffer);
-  const len = bytes.byteLength;
-
-  for (let i = 0; i < len; i++) {
-    binary += String.fromCharCode(bytes[i]);
-  }
-
-  return binary;
-}
+import { FileWithContent, UploadMessage } from "./types/interfaces";
+import { DataverseNotesOperations } from "./services/DataverseNotesOperations";
+import { readFileAsArrayBuffer, readFileAsDataURL } from "./utils/fileUtils";
+import { inferMimeTypeFromFileName } from "./utils/mimeTypes";
 
 export class MultipleFileUploader
   implements ComponentFramework.ReactControl<IInputs, IOutputs>
@@ -34,7 +15,7 @@ export class MultipleFileUploader
   private fileDataValue = "";
   private existingFileNames: string[] = [];
   private isUploading = false;
-  private uploadMessage: { text: string; type: MessageBarType } | null = null;
+  private uploadMessage: UploadMessage | null = null;
   private filesUploaded = false;
   private context: ComponentFramework.Context<IInputs>;
   private parentRecordId: string;
@@ -42,13 +23,10 @@ export class MultipleFileUploader
   private blockedFileExtension = "";
   private maxFileSizeForAttachment: number;
   private showDialog: boolean;
+  private dataverseService: DataverseNotesOperations;
 
   /**
-   * Used to initialize the control instance. Controls can kick off remote server calls and other initialization actions here.
-   * Data-set values are not initialized here, use updateView.
-   * @param context The entire property bag available to control via Context Object; It contains values as set up by the customizer mapped to property names defined in the manifest, as well as utility functions.
-   * @param notifyOutputChanged A callback method to alert the framework that the control has new outputs ready to be retrieved asynchronously.
-   * @param state A piece of data that persists in one session for a single user. Can be set at any point in a controls life cycle by calling 'setControlState' in the Mode interface.
+   * Used to initialize the control instance
    */
   public init(
     context: ComponentFramework.Context<IInputs>,
@@ -57,8 +35,8 @@ export class MultipleFileUploader
   ): void {
     this.notifyOutputChanged = notifyOutputChanged;
     this.context = context;
+    this.dataverseService = new DataverseNotesOperations(context);
 
-    // Parse existing field value if available
     if (context.parameters.fileData.raw) {
       this.parseExistingFieldValue(context.parameters.fileData.raw);
     }
@@ -74,65 +52,11 @@ export class MultipleFileUploader
   }
 
   /**
-   * Parse existing field value into file names array
-   * @param fieldValue The raw field value from Dataverse
-   */
-  private parseExistingFieldValue(fieldValue: string): void {
-    if (!fieldValue) return;
-
-    // Split the comma-separated values and clean them up
-    this.existingFileNames = fieldValue
-      .split(",")
-      .map((name) => name.trim())
-      .filter((name) => name.length > 0);
-
-    // Create dummy File objects for existing files
-    this.createDummyFiles();
-  }
-
-  /**
-   * Create dummy File objects for existing file names
-   */
-  private createDummyFiles(): void {
-    if (this.existingFileNames.length === 0) return;
-
-    const dummyFiles: FileWithContent[] = this.existingFileNames.map(
-      (fileName) => {
-        const extension = fileName.split(".").pop()?.toLowerCase() || "";
-        const mimeType: string = this.inferMimeTypeFromFileName(extension);
-
-        const file = new File([new ArrayBuffer(1)], fileName, {
-          type: mimeType,
-        });
-        const notesId =
-          this.selectedFiles.find((f) => f.file.name === fileName)?.notesId ||
-          this.getNotesId(fileName);
-        return { file, isExisting: true, notesId };
-      }
-    );
-
-    // Add the dummy files to the selectedFiles array
-    this.selectedFiles = dummyFiles;
-    this.updateFileDataValue();
-  }
-
-  private async getNotesId(fileName: string): Promise<string> {
-    const notes = await this.context.webAPI.retrieveMultipleRecords(
-      "annotation",
-      `?$select=annotationid&$filter=subject eq '${fileName}' and _objectid_value eq ${this.context.parameters.parentRecordId.raw}`
-    );
-    const notesId = notes.entities[0]["annotationid"];
-    return notesId as string;
-  }
-
-  /**
-   * Called when any value in the property bag has changed. This includes field values, data-sets, global values such as container height and width, offline status, control metadata values such as label, visible, etc.
-   * @param context The entire property bag available to control via Context Object; It contains values as set up by the customizer mapped to names defined in the manifest, as well as utility functions
+   * Called when any value in the property bag has changed
    */
   public updateView(
     context: ComponentFramework.Context<IInputs>
   ): React.ReactElement {
-    // Check if the field value has changed externally and needs to be reparsed
     if (
       context.parameters.fileData.raw !== this.fileDataValue &&
       context.parameters.fileData.raw
@@ -140,7 +64,6 @@ export class MultipleFileUploader
       this.parseExistingFieldValue(context.parameters.fileData.raw);
     }
 
-    // Update the context
     this.context = context;
 
     return React.createElement(FileUploaderComponent, {
@@ -163,11 +86,71 @@ export class MultipleFileUploader
   }
 
   /**
+   * Parse existing field value into file names array
+   */
+  private parseExistingFieldValue(fieldValue: string): void {
+    if (!fieldValue) return;
+
+    this.existingFileNames = fieldValue
+      .split(",")
+      .map((name) => name.trim())
+      .filter((name) => name.length > 0);
+
+    this.createDummyFiles();
+  }
+
+  /**
+   * Create dummy File objects for existing file names
+   */
+  private createDummyFiles(): void {
+    if (this.existingFileNames.length === 0) return;
+
+    const dummyFiles: FileWithContent[] = this.existingFileNames.map(
+      (fileName) => {
+        const extension = fileName.split(".").pop()?.toLowerCase() || "";
+        const mimeType = inferMimeTypeFromFileName(extension);
+
+        const file = new File([new ArrayBuffer(1)], fileName, {
+          type: mimeType,
+        });
+
+        let notesId: Promise<string | null> | undefined;
+        if (this.parentRecordId) {
+          notesId = this.dataverseService.getNotesId(
+            fileName,
+            this.parentRecordId
+          );
+        }
+
+        const existingFile = this.selectedFiles.find(
+          (f) => f.file.name === fileName
+        );
+        return {
+          file,
+          isExisting: true,
+          notesId: existingFile?.notesId || notesId,
+        };
+      }
+    );
+
+    this.selectedFiles = dummyFiles;
+    this.updateFileDataValue();
+  }
+
+  private updateFileDataValue(): void {
+    this.fileDataValue = this.selectedFiles
+      .map((fileWithContent) => fileWithContent.file.name)
+      .join(", ");
+  }
+
+  /**
    * Called when the user selects files
    */
-  private onFilesSelected = async (files: File[]): Promise<void> => {
+  private onFilesSelected = async (
+    files: File[],
+    isDragAndDrop: boolean
+  ): Promise<void> => {
     try {
-      // Check for duplicates by name and extension (case-insensitive)
       const existingNames = this.selectedFiles.map((f) =>
         f.file.name.toLowerCase()
       );
@@ -186,14 +169,13 @@ export class MultipleFileUploader
         this.showDialog = true;
         this.notifyOutputChanged();
         return;
-      } else {
-        this.showDialog = false;
       }
 
       if (nonDuplicateFiles.length > 0) {
         const newFiles = nonDuplicateFiles.map((file) => ({
           file,
           isExisting: false,
+          isDragAndDrop: isDragAndDrop,
         }));
         this.selectedFiles = [...this.selectedFiles, ...newFiles];
         this.updateFileDataValue();
@@ -212,30 +194,55 @@ export class MultipleFileUploader
 
   /**
    * Called when a file is removed
-   * @param index The index of the file to remove
    */
   private onFileRemoved = async (index: number): Promise<void> => {
-    // Check if this is an existing file
     const removedFile = this.selectedFiles[index];
     if (removedFile.isExisting) {
-      this.uploadMessage = null; // Clear any previous messages
+      this.uploadMessage = null;
       this.operationType = "Deleting Notes...";
       this.isUploading = true;
       this.notifyOutputChanged();
 
       try {
-        // If it's an existing file, remove it from existingFileNames array
         const fileName = removedFile.file.name;
         this.existingFileNames = this.existingFileNames.filter(
           (name) => name !== fileName
         );
 
+        let notesId: string | null = null;
         if (removedFile.notesId) {
-          const notesId = await removedFile.notesId;
-          await this.context.webAPI.deleteRecord("annotation", notesId);
+          if (typeof removedFile.notesId === "string") {
+            notesId = removedFile.notesId;
+          } else {
+            try {
+              notesId = await removedFile.notesId;
+            } catch (error) {
+              console.error("Error retrieving notes ID:", error);
+              throw new Error(`Failed to get notes ID for file ${fileName}`);
+            }
+          }
         }
 
-        // Remove the file from selectedFiles array
+        if (!notesId && this.parentRecordId) {
+          try {
+            notesId = await this.dataverseService.getNotesId(
+              fileName,
+              this.parentRecordId
+            );
+          } catch (error) {
+            console.error("Error retrieving notes ID:", error);
+            throw new Error(`Failed to get notes ID for file ${fileName}`);
+          }
+        }
+
+        if (notesId) {
+          await this.dataverseService.deleteNote(notesId);
+        } else {
+          console.warn(
+            `No notes ID found for file ${fileName}. File may have already been deleted.`
+          );
+        }
+
         this.selectedFiles = [
           ...this.selectedFiles.slice(0, index),
           ...this.selectedFiles.slice(index + 1),
@@ -256,7 +263,6 @@ export class MultipleFileUploader
         };
       }
     } else {
-      // For non-existing files, just remove from the array
       this.selectedFiles = [
         ...this.selectedFiles.slice(0, index),
         ...this.selectedFiles.slice(index + 1),
@@ -268,66 +274,60 @@ export class MultipleFileUploader
   };
 
   /**
-   * Updates the fileDataValue based on selected files
-   * This is called whenever files are added or removed
-   */
-  private updateFileDataValue(): void {
-    this.fileDataValue = this.selectedFiles
-      .map((fileWithContent) => fileWithContent.file.name)
-      .join(", ");
-  }
-
-  /**
    * Called when the user clicks the upload button
-   * @returns Promise that resolves when the upload is complete
    */
   private onSubmitFiles = async (): Promise<void> => {
     let errorMessage: string = null;
-    // Disable button immediately
     this.isUploading = true;
     this.uploadMessage = null;
     this.operationType = "Creating Notes...";
     this.notifyOutputChanged();
 
     try {
-      // Check if we have any files to upload (that aren't just dummy files)
       const filesToUpload = this.selectedFiles.filter(
         (fileWithContent) => !fileWithContent.isExisting
       );
+
       if (filesToUpload.length === 0) {
         this.isUploading = false;
         this.notifyOutputChanged();
         return;
       }
 
-      // Get the parent record ID and entity name
       const parentEntityName = this.context.parameters.parentEntityName.raw;
-      if (!parentEntityName) {
-        this.isUploading = false;
-        this.notifyOutputChanged();
-        return;
-      }
-
       const recordId = this.parentRecordId;
-      if (!recordId) {
+      if (!parentEntityName || !recordId) {
         this.isUploading = false;
+        this.uploadMessage = {
+          text: "Parent entity name or record ID is missing. Please check configuration.",
+          type: MessageBarType.error,
+        };
         this.notifyOutputChanged();
         return;
       }
 
-      // Process each file one by one, updating progress as we go
       const totalFiles = filesToUpload.length;
       let completedFiles = 0;
       const filesWithNotesId: FileWithContent[] = [];
+
       for (const fileWithContent of filesToUpload) {
         try {
-          const notesId = await this.createNoteWithAttachment(
-            fileWithContent,
+          const file = fileWithContent.file;
+          const fileContent = fileWithContent.isDragAndDrop
+            ? await readFileAsDataURL(file)
+            : await readFileAsArrayBuffer(file);
+          const fileExtension = file.name.split(".").pop()?.toLowerCase() || "";
+          const mimeType = inferMimeTypeFromFileName(fileExtension);
+
+          const notesId = await this.dataverseService.createNoteWithAttachment(
+            file,
+            fileContent,
             recordId,
-            parentEntityName
+            parentEntityName,
+            mimeType
           );
 
-          fileWithContent.notesId = notesId; // Store the notesId in the fileWithContent object
+          fileWithContent.notesId = notesId;
           filesWithNotesId.push(fileWithContent);
           completedFiles++;
         } catch (fileError) {
@@ -342,7 +342,6 @@ export class MultipleFileUploader
       }
 
       this.filesUploaded = true;
-
       this.selectedFiles = this.selectedFiles.filter(
         (file) =>
           file.isExisting ||
@@ -366,7 +365,6 @@ export class MultipleFileUploader
             ? MessageBarType.success
             : MessageBarType.error,
       };
-      this.notifyOutputChanged();
     } catch (error) {
       console.error("Error in file upload process:", error);
       this.isUploading = false;
@@ -374,267 +372,25 @@ export class MultipleFileUploader
         text: `Error in file upload process: ${(error as Error).message}`,
         type: MessageBarType.error,
       };
-      this.notifyOutputChanged();
     }
+
+    this.notifyOutputChanged();
   };
 
   /**
-   * Creates a note record with the file as an attachment using block upload
-   * This implements the recommended Dataverse approach for file uploads
-   */
-  private async createNoteWithAttachment(
-    fileWithContent: FileWithContent,
-    parentId: string,
-    parentEntityName: string
-  ): Promise<string> {
-    try {
-      let fileContent = fileWithContent.content;
-      if (!fileContent) {
-        console.log(`Reading content for file: ${fileWithContent.file.name}`);
-        fileContent = await this.readFileAsBase64(fileWithContent.file);
-      }
-
-      // Get file information
-      const file = fileWithContent.file;
-      const fileName = file.name;
-      const fileExtension = fileName.split(".").pop()?.toLowerCase() || "";
-      const mimeType: string = this.inferMimeTypeFromFileName(fileExtension);
-
-      const target = {
-        filename: fileName,
-        mimetype: mimeType,
-        subject: fileName,
-        [`objectid_${parentEntityName}@odata.bind`]: `/${parentEntityName}s(${parentId})`,
-        isdocument: true,
-        documentbody: fileContent,
-      };
-
-      const notes = await this.context.webAPI.createRecord(
-        "annotation",
-        target
-      );
-
-      // This code initializes a block upload session for a file attachment in Dataverse.
-      // It sends a POST request to the InitializeAnnotationBlocksUpload endpoint, providing metadata about the note (annotation) record.
-      // The response will contain a FileContinuationToken, which is required for uploading file blocks in subsequent steps.
-      // This call can take a long time to execute if the Dataverse API is slow to respond,
-      // or if there are network latency issues. The endpoint initializes a block upload session,
-      // which may involve server-side processing and database operations.
-      // To help diagnose slowness, you can add timing logs:
-
-      /* const initStart = performance.now();
-      const initResponse = await fetch(
-        `/api/data/v9.2/InitializeAnnotationBlocksUpload`,
-        {
-          method: "POST",
-          headers: {
-            "OData-MaxVersion": "4.0",
-            "OData-Version": "4.0",
-            Accept: "application/json",
-            "Content-Type": "application/json; charset=utf-8",
-          },
-          body: JSON.stringify({
-            Target: {
-              annotationid: notes.id, // The GUID of the note record just created
-              subject: file.name, // Subject for the note
-              filename: file.name, // Name of the file being uploaded
-              mimetype: file.type, // MIME type of the file
-              notetext: "File uploaded in chunks", // Description or note text
-              "@odata.type": "Microsoft.Dynamics.CRM.annotation", // OData type for the annotation entity
-              [`objectid_${parentEntityName}@odata.bind`]: `/${parentEntityName}s(${parentId})`,
-            },
-          }),
-        }
-      );
-      const initEnd = performance.now();
-      console.log(
-        `InitializeAnnotationBlocksUpload took ${(initEnd - initStart).toFixed(
-          2
-        )} ms`
-      );
-
-      // To avoid long-running requests, check for a successful response before parsing JSON
-      if (!initResponse.ok) {
-        throw new Error(
-          `Failed to initialize block upload: ${initResponse.statusText}`
-        );
-      }
-      const initData = await initResponse.json();
-      const fileContinuationToken = initData.FileContinuationToken;
-
-      // Step 2: Upload the file in blocks
-      const blockIds: string[] = [];
-      const blockSize = 4 * 1024 * 1024; // 4 MB
-      const fileData = await this.readFileAsArrayBuffer(file);
-      const totalBytes = fileData.byteLength;
-
-      // Convert ArrayBuffer to Uint8Array for processing
-      const bytes = new Uint8Array(fileData);
-
-      // Calculate how many blocks we need
-      const blocksCount = Math.ceil(totalBytes / blockSize);
-      console.log(`Uploading ${fileName} in ${blocksCount} blocks of 4MB each`);
-
-      // Upload each block
-      for (let i = 0; i < totalBytes; i += blockSize) {
-        // Create a block of the appropriate size
-        const blockData = bytes.slice(i, Math.min(i + blockSize, totalBytes));
-
-        // Generate a block ID
-        const blockId = btoa((Math.random() * 10000000000).toString()); // Convert to base64
-        blockIds.push(blockId);
-
-        // Convert Uint8Array to base64
-        const blockBase64 = this.uint8ArrayToBase64(blockData);
-
-        // Upload the block
-        console.log(
-          `Uploading block ${blockIds.length} of ${blocksCount}, size: ${blockData.length} bytes`
-        );
-
-        await fetch(`/api/data/v9.2/UploadBlock`, {
-          method: "POST",
-          headers: {
-            "OData-MaxVersion": "4.0",
-            "OData-Version": "4.0",
-            Accept: "application/json",
-            "Content-Type": "application/json; charset=utf-8",
-          },
-          body: JSON.stringify({
-            FileContinuationToken: fileContinuationToken,
-            BlockId: blockId,
-            BlockData: blockData,
-          }),
-        });
-      }
-
-      // Step 3: Commit the upload
-      await fetch(`/api/data/v9.2/CommitAnnotationBlocksUpload`, {
-        method: "POST",
-        headers: {
-          "OData-MaxVersion": "4.0",
-          "OData-Version": "4.0",
-          Accept: "application/json",
-          "Content-Type": "application/json; charset=utf-8",
-        },
-        body: JSON.stringify({
-          FileContinuationToken: fileContinuationToken,
-          BlockList: blockIds,
-          Target: {
-            annotationid: notes.id,
-            "@odata.type": "Microsoft.Dynamics.CRM.annotation",
-            subject: file.name, // Subject for the note
-            filename: file.name, // Name of the file being uploaded
-            mimetype: file.type, // MIME type of the file
-          },
-        }),
-      }); */
-
-      // Return the ID of the created note
-      return notes.id;
-    } catch (error) {
-      console.error(
-        `Error creating note with attachment for ${fileWithContent.file.name}:`,
-        error
-      );
-      throw error;
-    }
-  }
-
-  private readFileAsBase64(file: File): Promise<string> {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.readAsArrayBuffer(file);
-
-      reader.onload = () => {
-        try {
-          if (!reader.result) {
-            reject(new Error("FileReader result is null"));
-            return;
-          }
-
-          const base64 = arrayBufferToBase64(reader.result as ArrayBuffer);
-
-          resolve(base64);
-        } catch (error) {
-          console.error(`Error converting ${file.name} to base64:`, error);
-          reject(error);
-        }
-      };
-
-      reader.onerror = () => {
-        console.error(`FileReader error for ${file.name}:`, reader.error);
-        reject(reader.error);
-      };
-    });
-  }
-
-  public inferMimeTypeFromFileName(extension: string) {
-    const mimeTypes: Record<string, string> = {
-      txt: "text/plain",
-      html: "text/html",
-      css: "text/css",
-      js: "text/javascript",
-      json: "application/json",
-      xml: "application/xml",
-      pdf: "application/pdf",
-      doc: "application/msword",
-      docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-      xls: "application/vnd.ms-excel",
-      xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-      ppt: "application/vnd.ms-powerpoint",
-      pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-      png: "image/png",
-      jpg: "image/jpeg",
-      jpeg: "image/jpeg",
-      gif: "image/gif",
-      bmp: "image/bmp",
-      svg: "image/svg+xml",
-      mp3: "audio/mpeg",
-      mp4: "video/mp4",
-      wav: "audio/wav",
-      zip: "application/zip",
-      csv: "text/csv",
-    };
-
-    return mimeTypes[extension] || "application/octet-stream";
-  }
-
-  /**
-   * Converts Uint8Array to base64 string
-   */
-  private uint8ArrayToBase64(array: Uint8Array): string {
-    let binary = "";
-    const chunkSize = 1000; // Process in smaller chunks to avoid call stack issues
-
-    for (let i = 0; i < array.length; i += chunkSize) {
-      // Convert each chunk of bytes to string characters
-      binary += String.fromCharCode.apply(
-        null,
-        Array.from(array.subarray(i, i + chunkSize))
-      );
-    }
-
-    return window.btoa(binary);
-  }
-
-  /**
    * It is called by the framework prior to a control receiving new data.
-   * @returns an object based on nomenclature defined in manifest, expecting object[s] for property marked as "bound" or "output"
    */
   public getOutputs(): IOutputs {
     return {
       fileData: this.fileDataValue,
       isUploading: this.isUploading,
-      showDialog: this.showDialog,
     };
   }
 
   /**
-   * Called when the control is to be removed from the DOM tree. Controls should use this call for cleanup.
-   * i.e. cancelling any pending remote calls, removing listeners, etc.
+   * Called when the control is to be removed from the DOM tree
    */
   public destroy(): void {
-    // No need to clean up DOM elements as React will handle that
+    // Add code to cleanup control if necessary
   }
 }
