@@ -15,6 +15,13 @@ export interface FileUploaderComponentProps {
   maxFileSizeForAttachment: number;
   blockedFileExtension: string;
   showDialog?: { title: string; subText: string } | null;
+  uploadProgress?: FileUploadProgress;
+}
+
+export interface FileUploadProgress {
+  currentFileIndex: number;
+  totalFiles: number;
+  filesWithProgress: FileWithContent[];
 }
 
 export interface FileInfo {
@@ -37,6 +44,9 @@ export interface FileWithContent {
   isExisting: boolean;
   notesId?: string | Promise<string>;
   isDragAndDrop?: boolean;
+  uploadProgress?: number; // 0-100 percentage
+  uploadStatus?: "pending" | "uploading" | "completed" | "error";
+  uploadError?: string;
 }
 
 export interface UploadMessage {

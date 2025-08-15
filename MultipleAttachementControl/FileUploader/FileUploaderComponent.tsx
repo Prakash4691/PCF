@@ -7,6 +7,7 @@ import { SizeLimitDialog } from "./components/dialogs/SizeLimitDialog";
 import { FileGrid } from "./components/FileGrid/FileGrid";
 import { FileHeader } from "./components/FileHeader";
 import { UploadSection } from "./components/UploadSection";
+import { UploadProgress } from "./components/UploadProgress";
 import { getMimeTypeFromExtension } from "./utils/mimeTypes";
 
 // Initialize the FluentUI icons
@@ -28,10 +29,10 @@ export const FileUploaderComponent: React.FC<FileUploaderComponentProps> = (
     maxFileSizeForAttachment,
     blockedFileExtension,
     showDialog,
+    uploadProgress,
   } = props;
 
   const [isDragging, setIsDragging] = React.useState(false);
-  const [hasOverflow, setHasOverflow] = React.useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = React.useState(false);
   const [fileToDelete, setFileToDelete] = React.useState<{
     index: number;
@@ -46,21 +47,6 @@ export const FileUploaderComponent: React.FC<FileUploaderComponentProps> = (
     subText: "",
   });
   const fileInputRef = React.useRef<HTMLInputElement>(null);
-  const fileGridRef = React.useRef<HTMLDivElement>(null);
-
-  React.useEffect(() => {
-    const checkOverflow = () => {
-      if (fileGridRef.current) {
-        setHasOverflow(
-          fileGridRef.current.scrollWidth > fileGridRef.current.clientWidth
-        );
-      }
-    };
-
-    checkOverflow();
-    window.addEventListener("resize", checkOverflow);
-    return () => window.removeEventListener("resize", checkOverflow);
-  }, [selectedFiles]);
 
   React.useEffect(() => {
     if (showDialog) {
@@ -197,7 +183,11 @@ export const FileUploaderComponent: React.FC<FileUploaderComponentProps> = (
         <div className="file-uploader-content" onClick={handlePickFilesClick}>
           <Icon iconName="Upload" className="upload-icon" />
           <div className="file-uploader-text">
-            Drag and drop files here or click to browse
+            <strong>Drag and drop files here</strong> or{" "}
+            <strong>click to browse</strong>
+          </div>
+          <div className="file-uploader-subtext">
+            Supported file types and size limits apply
           </div>
           <input
             type="file"
@@ -215,11 +205,15 @@ export const FileUploaderComponent: React.FC<FileUploaderComponentProps> = (
             fileCount={selectedFiles.length}
             onAddFiles={handlePickFilesClick}
           />
-          <FileGrid
-            files={selectedFiles}
-            hasOverflow={hasOverflow}
-            onRemove={handleFileRemove}
-          />
+          <FileGrid files={selectedFiles} onRemove={handleFileRemove} />
+          {uploadProgress && uploadProgress.filesWithProgress.length > 0 && (
+            <div className="upload-progress-wrapper">
+              <UploadProgress
+                uploadProgress={uploadProgress}
+                onRemoveFile={handleFileRemove}
+              />
+            </div>
+          )}
           <UploadSection
             isUploading={isUploading}
             operationType={operationType}
