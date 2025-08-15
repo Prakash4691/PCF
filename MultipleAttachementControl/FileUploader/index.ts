@@ -2,7 +2,11 @@ import { IInputs, IOutputs } from "./generated/ManifestTypes";
 import * as React from "react";
 import { FileUploaderComponent } from "./FileUploaderComponent";
 import { MessageBarType } from "@fluentui/react/lib/MessageBar";
-import { FileWithContent, UploadMessage } from "./types/interfaces";
+import {
+  FileWithContent,
+  UploadMessage,
+  FileUploadProgress,
+} from "./types/interfaces";
 import { DataverseNotesOperations } from "./services/DataverseNotesOperations";
 import { readFileAsArrayBuffer, readFileAsDataURL } from "./utils/fileUtils";
 import { inferMimeTypeFromFileName } from "./utils/mimeTypes";
@@ -24,6 +28,7 @@ export class MultipleFileUploader
   private maxFileSizeForAttachment: number;
   private showDialog: boolean;
   private dataverseService: DataverseNotesOperations;
+  private uploadProgress: FileUploadProgress | null = null;
 
   /**
    * Used to initialize the control instance
@@ -82,6 +87,7 @@ export class MultipleFileUploader
       maxFileSizeForAttachment: this.maxFileSizeForAttachment,
       blockedFileExtension: this.blockedFileExtension,
       showDialog: null,
+      uploadProgress: this.uploadProgress,
     });
   }
 
@@ -129,6 +135,8 @@ export class MultipleFileUploader
           file,
           isExisting: true,
           notesId: existingFile?.notesId || notesId,
+          uploadProgress: 100,
+          uploadStatus: "completed" as const,
         };
       }
     );
@@ -141,6 +149,54 @@ export class MultipleFileUploader
     this.fileDataValue = this.selectedFiles
       .map((fileWithContent) => fileWithContent.file.name)
       .join(", ");
+  }
+
+  /**
+   * Update progress for a specific file
+   */
+  private updateFileProgress(
+    fileIndex: number,
+    progress: number,
+    status: "pending" | "uploading" | "completed" | "error",
+    error?: string
+  ): void {
+    if (fileIndex < this.selectedFiles.length) {
+      this.selectedFiles[fileIndex].uploadProgress = progress;
+      this.selectedFiles[fileIndex].uploadStatus = status;
+      if (error) {
+        this.selectedFiles[fileIndex].uploadError = error;
+      }
+
+      // Update upload progress state
+      const filesToUpload = this.selectedFiles.filter((f) => !f.isExisting);
+      this.uploadProgress = {
+        currentFileIndex: fileIndex,
+        totalFiles: filesToUpload.length,
+        filesWithProgress: [...filesToUpload],
+      };
+
+      this.notifyOutputChanged();
+    }
+  }
+
+  /**
+   * Initialize upload progress tracking
+   */
+  private initializeUploadProgress(): void {
+    const filesToUpload = this.selectedFiles.filter((f) => !f.isExisting);
+
+    // Initialize all files with pending status
+    filesToUpload.forEach((file, index) => {
+      file.uploadProgress = 0;
+      file.uploadStatus = "pending";
+      file.uploadError = undefined;
+    });
+
+    this.uploadProgress = {
+      currentFileIndex: 0,
+      totalFiles: filesToUpload.length,
+      filesWithProgress: [...filesToUpload],
+    };
   }
 
   /**
@@ -176,6 +232,8 @@ export class MultipleFileUploader
           file,
           isExisting: false,
           isDragAndDrop: isDragAndDrop,
+          uploadProgress: 0,
+          uploadStatus: "pending" as const,
         }));
         this.selectedFiles = [...this.selectedFiles, ...newFiles];
         this.updateFileDataValue();
@@ -281,19 +339,22 @@ export class MultipleFileUploader
     this.isUploading = true;
     this.uploadMessage = null;
     this.operationType = "Creating Notes...";
+
+    const filesToUpload = this.selectedFiles.filter(
+      (fileWithContent) => !fileWithContent.isExisting
+    );
+
+    if (filesToUpload.length === 0) {
+      this.isUploading = false;
+      this.notifyOutputChanged();
+      return;
+    }
+
+    // Initialize progress tracking
+    this.initializeUploadProgress();
     this.notifyOutputChanged();
 
     try {
-      const filesToUpload = this.selectedFiles.filter(
-        (fileWithContent) => !fileWithContent.isExisting
-      );
-
-      if (filesToUpload.length === 0) {
-        this.isUploading = false;
-        this.notifyOutputChanged();
-        return;
-      }
-
       const parentEntityName = this.context.parameters.parentEntityName.raw;
       const recordId = this.parentRecordId;
       if (!parentEntityName || !recordId) {
@@ -310,14 +371,33 @@ export class MultipleFileUploader
       let completedFiles = 0;
       const filesWithNotesId: FileWithContent[] = [];
 
+      let i = 0;
       for (const fileWithContent of filesToUpload) {
+        const originalIndex = this.selectedFiles.findIndex(
+          (f) => f.file.name === fileWithContent.file.name
+        );
+
         try {
+          // Update status to uploading
+          this.updateFileProgress(originalIndex, 0, "uploading");
+
           const file = fileWithContent.file;
+
+          // Simulate progress during file reading
+          this.updateFileProgress(originalIndex, 25, "uploading");
+
           const fileContent = fileWithContent.isDragAndDrop
             ? await readFileAsDataURL(file)
             : await readFileAsArrayBuffer(file);
+
+          // Progress after file processing
+          this.updateFileProgress(originalIndex, 50, "uploading");
+
           const fileExtension = file.name.split(".").pop()?.toLowerCase() || "";
           const mimeType = inferMimeTypeFromFileName(fileExtension);
+
+          // Progress before upload
+          this.updateFileProgress(originalIndex, 75, "uploading");
 
           const notesId = await this.dataverseService.createNoteWithAttachment(
             file,
@@ -327,6 +407,9 @@ export class MultipleFileUploader
             mimeType
           );
 
+          // Complete this file
+          this.updateFileProgress(originalIndex, 100, "completed");
+
           fileWithContent.notesId = notesId;
           filesWithNotesId.push(fileWithContent);
           completedFiles++;
@@ -335,10 +418,21 @@ export class MultipleFileUploader
             `Error uploading ${fileWithContent.file.name}:`,
             fileError
           );
+
+          // Mark this file as error
+          this.updateFileProgress(
+            originalIndex,
+            0,
+            "error",
+            `Error uploading: ${(fileError as Error).message}`
+          );
+
           errorMessage = `Error uploading ${fileWithContent.file.name}: ${
             (fileError as Error).message
           }`;
         }
+
+        i++;
       }
 
       this.filesUploaded = true;
@@ -365,6 +459,12 @@ export class MultipleFileUploader
             ? MessageBarType.success
             : MessageBarType.error,
       };
+
+      // Clear upload progress after a delay
+      setTimeout(() => {
+        this.uploadProgress = null;
+        this.notifyOutputChanged();
+      }, 3000);
     } catch (error) {
       console.error("Error in file upload process:", error);
       this.isUploading = false;
@@ -372,6 +472,9 @@ export class MultipleFileUploader
         text: `Error in file upload process: ${(error as Error).message}`,
         type: MessageBarType.error,
       };
+
+      // Clear upload progress on error
+      this.uploadProgress = null;
     }
 
     this.notifyOutputChanged();
