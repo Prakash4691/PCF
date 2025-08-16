@@ -83,6 +83,12 @@ export class MultipleFileUploader
       uploadMessage: this.uploadMessage,
       hasExistingFiles: this.existingFileNames.length > 0,
       filesUploaded: this.filesUploaded,
+      uploadedFilesCount: this.selectedFiles.filter(
+        (f) => f.isExisting || f.uploadStatus === "completed"
+      ).length,
+      newFilesCount: this.selectedFiles.filter(
+        (f) => !f.isExisting && f.uploadStatus !== "completed"
+      ).length,
       operationType: this.operationType,
       maxFileSizeForAttachment: this.maxFileSizeForAttachment,
       blockedFileExtension: this.blockedFileExtension,

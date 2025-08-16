@@ -11,6 +11,10 @@ export interface FileUploaderComponentProps {
   uploadMessage?: { text: string; type: MessageBarType } | null;
   hasExistingFiles: boolean;
   filesUploaded: boolean;
+  /** Count of files that are already uploaded / existing */
+  uploadedFilesCount: number;
+  /** Count of newly selected (not yet uploaded) files */
+  newFilesCount: number;
   operationType?: string;
   maxFileSizeForAttachment: number;
   blockedFileExtension: string;
