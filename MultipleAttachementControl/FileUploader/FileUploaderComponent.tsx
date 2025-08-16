@@ -25,6 +25,8 @@ export const FileUploaderComponent: React.FC<FileUploaderComponentProps> = (
     isUploading,
     uploadMessage,
     filesUploaded,
+    uploadedFilesCount,
+    newFilesCount,
     operationType,
     maxFileSizeForAttachment,
     blockedFileExtension,
@@ -202,7 +204,11 @@ export const FileUploaderComponent: React.FC<FileUploaderComponentProps> = (
       ) : (
         <>
           <FileHeader
-            fileCount={selectedFiles.length}
+            fileCount={
+              // If there are new files pending upload show that count with Selected, else show uploaded count
+              newFilesCount > 0 ? newFilesCount : uploadedFilesCount
+            }
+            mode={newFilesCount > 0 ? "selected" : "uploaded"}
             onAddFiles={handlePickFilesClick}
           />
           <FileGrid files={selectedFiles} onRemove={handleFileRemove} />

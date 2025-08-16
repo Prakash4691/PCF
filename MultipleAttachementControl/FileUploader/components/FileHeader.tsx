@@ -7,11 +7,14 @@ import { Separator } from "@fluentui/react/lib/Separator";
 interface FileHeaderProps {
   fileCount: number;
   onAddFiles: () => void;
+  /** Mode determines which label to show: 'selected' (new pending files) or 'uploaded' (all existing/completed) */
+  mode?: "selected" | "uploaded";
 }
 
 export const FileHeader: React.FC<FileHeaderProps> = ({
   fileCount,
   onAddFiles,
+  mode = "selected",
 }) => {
   return (
     <>
@@ -25,7 +28,8 @@ export const FileHeader: React.FC<FileHeaderProps> = ({
             },
           }}
         >
-          Selected Files ({fileCount})
+          {mode === "uploaded" ? "Uploaded Files" : "Selected Files"} (
+          {fileCount})
         </Text>
         <DefaultButton
           className="add-files-button"
