@@ -134,6 +134,8 @@ PRs welcome: lint (`npm run lint`), build (`npm run build`), keep manifest & REA
 
 ## License
 
+This project is licensed under the MIT License - see the [LICENSE](../LICENSE) file for details.
+
 ## Demo
 
 Video: https://youtu.be/IcgaxKI8nkU
