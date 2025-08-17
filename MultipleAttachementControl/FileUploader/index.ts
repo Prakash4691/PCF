@@ -8,7 +8,7 @@ import {
   FileUploadProgress,
 } from "./types/interfaces";
 import { DataverseNotesOperations } from "./services/DataverseNotesOperations";
-import { readFileAsArrayBuffer, readFileAsDataURL } from "./utils/fileUtils";
+import { readFileAsDataURL } from "./utils/fileUtils";
 import { inferMimeTypeFromFileName } from "./utils/mimeTypes";
 
 export class MultipleFileUploader
@@ -29,6 +29,7 @@ export class MultipleFileUploader
   private showDialog: boolean;
   private dataverseService: DataverseNotesOperations;
   private uploadProgress: FileUploadProgress | null = null;
+  //private triggerSaveRefresh = "";
 
   /**
    * Used to initialize the control instance
@@ -41,12 +42,21 @@ export class MultipleFileUploader
     this.notifyOutputChanged = notifyOutputChanged;
     this.context = context;
     this.dataverseService = new DataverseNotesOperations(context);
+    // IMPORTANT: assign parentRecordId BEFORE parsing existing files so notesId lookups work
+    this.parentRecordId = context.parameters.parentRecordId.raw;
+
+    // Request resize tracking so allocatedWidth/allocatedHeight are updated (per Microsoft docs trackContainerResize)
+    try {
+      // true indicates we want height updates as well
+      this.context.mode.trackContainerResize(true);
+    } catch (e) {
+      // Fail silently if API not available (older harness versions)
+      console.warn("trackContainerResize not available", e);
+    }
 
     if (context.parameters.fileData.raw) {
       this.parseExistingFieldValue(context.parameters.fileData.raw);
     }
-
-    this.parentRecordId = context.parameters.parentRecordId.raw;
     this.blockedFileExtension =
       context.parameters.blockedFileExtension.raw ?? "";
     this.maxFileSizeForAttachment = context.parameters.maxFileSizeForAttachment
@@ -71,6 +81,16 @@ export class MultipleFileUploader
 
     this.context = context;
 
+    // Fallback: if existing files present but none have resolved notesId yet and we now have parentRecordId, attempt resolution
+    if (
+      this.parentRecordId &&
+      this.selectedFiles.some(
+        (f) => f.isExisting && (!f.notesId || typeof f.notesId !== "string")
+      )
+    ) {
+      this.resolveExistingNotesIds();
+    }
+
     return React.createElement(FileUploaderComponent, {
       selectedFiles: this.selectedFiles.map(
         (fileWithContent) => fileWithContent.file
@@ -94,6 +114,8 @@ export class MultipleFileUploader
       blockedFileExtension: this.blockedFileExtension,
       showDialog: null,
       uploadProgress: this.uploadProgress,
+      allocatedWidth: context.mode?.allocatedWidth,
+      allocatedHeight: context.mode?.allocatedHeight,
     });
   }
 
@@ -103,11 +125,65 @@ export class MultipleFileUploader
   private parseExistingFieldValue(fieldValue: string): void {
     if (!fieldValue) return;
 
-    this.existingFileNames = fieldValue
+    const rawSegments = fieldValue
       .split(",")
-      .map((name) => name.trim())
-      .filter((name) => name.length > 0);
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0);
 
+    const decoded: string[] = [];
+
+    // Helper: known extensions to determine filename boundaries for legacy (unencoded) storage
+    const knownExt = [
+      "jpg",
+      "jpeg",
+      "png",
+      "gif",
+      "bmp",
+      "webp",
+      "svg",
+      "ico",
+      "pdf",
+      "doc",
+      "docx",
+      "xls",
+      "xlsx",
+      "ppt",
+      "pptx",
+      "txt",
+    ];
+
+    // Detect if new encoded format (every segment decodes cleanly & contains no leftover % except for encoded sequences)
+    const looksEncoded = rawSegments.some((seg) => /%[0-9A-Fa-f]{2}/.test(seg));
+
+    if (looksEncoded) {
+      for (const seg of rawSegments) {
+        try {
+          decoded.push(decodeURIComponent(seg));
+        } catch {
+          decoded.push(seg); // fallback
+        }
+      }
+    } else {
+      // Legacy: filenames may have been split on commas that actually belonged to the filename.
+      let accumulator: string[] = [];
+      const flush = () => {
+        if (accumulator.length) {
+          decoded.push(accumulator.join(", "));
+          accumulator = [];
+        }
+      };
+      for (const seg of rawSegments) {
+        accumulator.push(seg);
+        const candidate = accumulator.join(", ");
+        const ext = candidate.split(".").pop()?.toLowerCase() || "";
+        if (knownExt.includes(ext)) {
+          flush();
+        }
+      }
+      flush();
+    }
+
+    this.existingFileNames = decoded.filter((n) => n.length > 0);
     this.createDummyFiles();
   }
 
@@ -149,12 +225,35 @@ export class MultipleFileUploader
 
     this.selectedFiles = dummyFiles;
     this.updateFileDataValue();
+    // Resolve notes ids asynchronously and attach to File objects
+    this.resolveExistingNotesIds();
+  }
+
+  /** Resolve pending notesId promises to concrete strings and attach to file objects */
+  private resolveExistingNotesIds(): void {
+    const pending = this.selectedFiles.filter(
+      (f) => f.isExisting && f.notesId && typeof f.notesId !== "string"
+    );
+    if (pending.length === 0) return;
+    pending.forEach(async (f) => {
+      try {
+        const id = await f.notesId;
+        if (id) {
+          f.file.notesId = id; // augment File so React component can access
+          f.notesId = id; // cache resolved
+          this.notifyOutputChanged();
+        }
+      } catch (e) {
+        console.error("Failed resolving notesId for", f.file.name, e);
+      }
+    });
   }
 
   private updateFileDataValue(): void {
+    // Store as comma-separated list of URI-encoded names to avoid ambiguity with commas inside filenames
     this.fileDataValue = this.selectedFiles
-      .map((fileWithContent) => fileWithContent.file.name)
-      .join(", ");
+      .map((f) => encodeURIComponent(f.file.name))
+      .join(",");
   }
 
   /**
@@ -342,6 +441,7 @@ export class MultipleFileUploader
    */
   private onSubmitFiles = async (): Promise<void> => {
     let errorMessage: string = null;
+    let completedFiles = 0;
     this.isUploading = true;
     this.uploadMessage = null;
     this.operationType = "Creating Notes...";
@@ -374,7 +474,6 @@ export class MultipleFileUploader
       }
 
       const totalFiles = filesToUpload.length;
-      let completedFiles = 0;
       const filesWithNotesId: FileWithContent[] = [];
 
       let i = 0;
@@ -392,9 +491,8 @@ export class MultipleFileUploader
           // Simulate progress during file reading
           this.updateFileProgress(originalIndex, 25, "uploading");
 
-          const fileContent = fileWithContent.isDragAndDrop
-            ? await readFileAsDataURL(file)
-            : await readFileAsArrayBuffer(file);
+          // Always use DataURL based base64 reading for consistency and memory safety
+          const fileContent = await readFileAsDataURL(file);
 
           // Progress after file processing
           this.updateFileProgress(originalIndex, 50, "uploading");
@@ -417,6 +515,7 @@ export class MultipleFileUploader
           this.updateFileProgress(originalIndex, 100, "completed");
 
           fileWithContent.notesId = notesId;
+          fileWithContent.file.notesId = notesId; // attach for preview
           filesWithNotesId.push(fileWithContent);
           completedFiles++;
         } catch (fileError) {
@@ -482,8 +581,17 @@ export class MultipleFileUploader
       // Clear upload progress on error
       this.uploadProgress = null;
     }
-
-    this.notifyOutputChanged();
+    // After all uploads and error handling
+    if (
+      completedFiles === filesToUpload.length &&
+      !errorMessage &&
+      this.context &&
+      this.context.events &&
+      typeof this.context.events.filesUploaded === "function"
+    ) {
+      //this.triggerSaveRefresh = new Date().toISOString(); // Use timestamp to ensure change is detected
+      this.context.events.filesUploaded();
+    }
   };
 
   /**
@@ -493,6 +601,7 @@ export class MultipleFileUploader
     return {
       fileData: this.fileDataValue,
       isUploading: this.isUploading,
+      //triggerSaveRefresh: this.triggerSaveRefresh,
     };
   }
 

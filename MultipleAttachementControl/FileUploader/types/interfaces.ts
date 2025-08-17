@@ -20,6 +20,10 @@ export interface FileUploaderComponentProps {
   blockedFileExtension: string;
   showDialog?: { title: string; subText: string } | null;
   uploadProgress?: FileUploadProgress;
+  /** Allocated width from PCF host (context.mode.allocatedWidth). Helps responsive rendering */
+  allocatedWidth?: number;
+  /** Allocated height from PCF host (context.mode.allocatedHeight). Helps responsive rendering */
+  allocatedHeight?: number;
 }
 
 export interface FileUploadProgress {

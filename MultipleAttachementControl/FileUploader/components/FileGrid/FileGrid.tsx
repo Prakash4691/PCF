@@ -5,9 +5,16 @@ import { getFileInfo } from "../../utils/fileHelpers";
 interface FileGridProps {
   files: File[];
   onRemove: (index: number) => void;
+  onPreview?: (index: number) => void;
+  onDownload?: (index: number) => void;
 }
 
-export const FileGrid: React.FC<FileGridProps> = ({ files, onRemove }) => {
+export const FileGrid: React.FC<FileGridProps> = ({
+  files,
+  onRemove,
+  onPreview,
+  onDownload,
+}) => {
   return (
     <div className="file-grid">
       {files.map((file, index) => {
@@ -18,6 +25,8 @@ export const FileGrid: React.FC<FileGridProps> = ({ files, onRemove }) => {
             fileInfo={fileInfo}
             index={index}
             onRemove={onRemove}
+            onPreview={onPreview}
+            onDownload={onDownload}
           />
         );
       })}

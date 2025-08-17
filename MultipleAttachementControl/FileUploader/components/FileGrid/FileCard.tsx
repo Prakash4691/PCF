@@ -9,12 +9,18 @@ interface FileCardProps {
   fileInfo: FileInfo;
   index: number;
   onRemove: (index: number) => void;
+  onPreview?: (index: number) => void;
+  onDownload?: (index: number) => void;
+  showActions?: boolean; // allow grid to control
 }
 
 export const FileCard: React.FC<FileCardProps> = ({
   fileInfo,
   index,
   onRemove,
+  onPreview,
+  onDownload,
+  showActions = true,
 }) => {
   const { file, icon, fileType, sizeText, isExistingFile } = fileInfo;
 
@@ -81,34 +87,62 @@ export const FileCard: React.FC<FileCardProps> = ({
           </Text>
         </div>
       </div>
-      <IconButton
-        className="remove-button"
-        iconProps={{ iconName: "Cancel" }}
-        onClick={(e) => {
-          e.stopPropagation();
-          onRemove(index);
-        }}
-        title="Remove file"
-        ariaLabel="Remove file"
-        styles={{
-          root: {
-            backgroundColor: "transparent",
-            border: "none",
-            color: "var(--colorStatusDangerForeground1, #d13438)",
-            width: "24px",
-            height: "24px",
-            minWidth: "24px",
-            borderRadius: "var(--borderRadiusSmall, 2px)",
-          },
-          rootHovered: {
-            backgroundColor: "var(--colorStatusDangerBackground1, #fdf3f4)",
-            color: "var(--colorStatusDangerForeground1, #d13438)",
-          },
-          icon: {
-            fontSize: "16px",
-          },
-        }}
-      />
+      {showActions && (
+        <div className="file-card-actions">
+          <IconButton
+            className="action-button"
+            iconProps={{ iconName: "View" }}
+            onClick={(e) => {
+              e.stopPropagation();
+              if (onPreview) {
+                onPreview(index);
+              }
+            }}
+            title="Preview file"
+            ariaLabel="Preview file"
+          />
+          <IconButton
+            className="action-button"
+            iconProps={{ iconName: "Download" }}
+            onClick={(e) => {
+              e.stopPropagation();
+              if (onDownload) {
+                onDownload(index);
+              }
+            }}
+            title="Download file"
+            ariaLabel="Download file"
+          />
+          <IconButton
+            className="remove-button"
+            iconProps={{ iconName: "Cancel" }}
+            onClick={(e) => {
+              e.stopPropagation();
+              onRemove(index);
+            }}
+            title="Remove file"
+            ariaLabel="Remove file"
+            styles={{
+              root: {
+                backgroundColor: "transparent",
+                border: "none",
+                color: "var(--colorStatusDangerForeground1, #d13438)",
+                width: "24px",
+                height: "24px",
+                minWidth: "24px",
+                borderRadius: "var(--borderRadiusSmall, 2px)",
+              },
+              rootHovered: {
+                backgroundColor: "var(--colorStatusDangerBackground1, #fdf3f4)",
+                color: "var(--colorStatusDangerForeground1, #d13438)",
+              },
+              icon: {
+                fontSize: "16px",
+              },
+            }}
+          />
+        </div>
+      )}
     </div>
   );
 };
