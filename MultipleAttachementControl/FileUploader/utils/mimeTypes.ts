@@ -6,6 +6,10 @@ export function inferMimeTypeFromFileName(extension: string): string {
   if (["jpg", "jpeg"].includes(extension)) return "image/jpeg";
   if (extension === "png") return "image/png";
   if (extension === "gif") return "image/gif";
+  if (extension === "bmp") return "image/bmp";
+  if (extension === "webp") return "image/webp";
+  if (extension === "svg") return "image/svg+xml";
+  if (extension === "ico") return "image/x-icon";
   if (extension === "pdf") return "application/pdf";
   if (extension === "doc") return "application/msword";
   if (extension === "docx")

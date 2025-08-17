@@ -9,6 +9,17 @@ import { FileHeader } from "./components/FileHeader";
 import { UploadSection } from "./components/UploadSection";
 import { UploadProgress } from "./components/UploadProgress";
 import { getMimeTypeFromExtension } from "./utils/mimeTypes";
+import { base64ToUint8Array } from "./utils/fileUtils";
+import { PreviewDialog } from "./components/dialogs/PreviewDialog";
+import {
+  base64ToBlob,
+  getObjectUrl,
+  isPreviewable,
+  isTextType,
+  readFileAsText,
+  triggerBrowserDownload,
+} from "./utils/filePreviewUtils";
+import { DataverseNotesOperations } from "./services/DataverseNotesOperations";
 
 // Initialize the FluentUI icons
 initializeIcons();
@@ -49,6 +60,39 @@ export const FileUploaderComponent: React.FC<FileUploaderComponentProps> = (
     subText: "",
   });
   const fileInputRef = React.useRef<HTMLInputElement>(null);
+  const notesServiceRef = React.useRef<DataverseNotesOperations | null>(null);
+
+  const [previewData, setPreviewData] = React.useState<{
+    fileName: string;
+    mimeType: string;
+    objectUrl?: string;
+    textContent?: string;
+  } | null>(null);
+  const [isPreviewOpen, setIsPreviewOpen] = React.useState(false);
+  const [isPreviewLoading, setIsPreviewLoading] = React.useState(false);
+
+  if (!notesServiceRef.current) {
+    notesServiceRef.current = new DataverseNotesOperations(context);
+  }
+
+  // Safely extract parentRecordId without using 'any'
+  interface ParentRecordContextParam {
+    parameters: {
+      parentRecordId?: { raw?: string };
+    };
+  }
+  const parentRecordId =
+    (context as unknown as ParentRecordContextParam).parameters.parentRecordId
+      ?.raw || "";
+
+  // Extend File interface for notesId metadata (existing uploaded placeholder files)
+  interface FileWithNoteId extends File {
+    notesId?: string;
+  }
+  const hasNotesId = (f: File): f is FileWithNoteId =>
+    Object.prototype.hasOwnProperty.call(f, "notesId") &&
+    typeof (f as FileWithNoteId).notesId === "string" &&
+    !!(f as FileWithNoteId).notesId;
 
   React.useEffect(() => {
     if (showDialog) {
@@ -117,9 +161,23 @@ export const FileUploaderComponent: React.FC<FileUploaderComponentProps> = (
         const invalidFiles: { file: File; reason: string }[] = [];
 
         for (const fileObj of fileObjs) {
-          const file = new File([fileObj.fileContent], fileObj.fileName, {
-            type:
-              fileObj.mimeType || getMimeTypeFromExtension(fileObj.fileName),
+          // Device.pickFile returns base64 WITHOUT data URL prefix (per docs). We must decode to bytes to prevent corruption.
+          let bytes: Uint8Array;
+          try {
+            bytes = base64ToUint8Array(fileObj.fileContent);
+          } catch (e) {
+            console.warn(
+              "Failed to decode base64 from pickFile, falling back to raw string",
+              e
+            );
+            bytes = new TextEncoder().encode(fileObj.fileContent);
+          }
+          const mime =
+            fileObj.mimeType || getMimeTypeFromExtension(fileObj.fileName);
+          // Use a copy of the underlying ArrayBuffer to satisfy BlobPart typing across environments
+          const arrayBuffer: ArrayBuffer = new Uint8Array(bytes).buffer;
+          const file = new File([arrayBuffer], fileObj.fileName, {
+            type: mime,
           });
 
           const fileExtension = file.name.split(".").pop()?.toLowerCase() || "";
@@ -174,6 +232,104 @@ export const FileUploaderComponent: React.FC<FileUploaderComponentProps> = (
     }
   };
 
+  const handlePreview = async (index: number) => {
+    const file: File = selectedFiles[index];
+    setIsPreviewOpen(true);
+    setIsPreviewLoading(true);
+    try {
+      // Determine if existing (placeholder size <=1) meaning we need to fetch from notes
+      if (file.size <= 1) {
+        const svc = notesServiceRef.current!;
+        // Fallback: attempt to resolve notesId even if not yet attached
+        let notesId: string | undefined;
+        if (hasNotesId(file)) {
+          notesId = file.notesId;
+        } else {
+          const fileName: string = (file as File).name;
+          notesId = await svc.getNotesId(fileName, parentRecordId);
+        }
+        if (!notesId) {
+          setPreviewData({
+            fileName: file.name,
+            mimeType: file.type || "application/octet-stream",
+          });
+          return;
+        }
+        if (!hasNotesId(file)) {
+          (file as FileWithNoteId).notesId = notesId;
+        }
+        const note = await svc.retrieveNote(notesId);
+        if (note) {
+          const blob = base64ToBlob(note.base64, note.mimeType);
+          if (isTextType(note.mimeType)) {
+            const text = await blob.text();
+            setPreviewData({
+              fileName: note.fileName,
+              mimeType: note.mimeType,
+              textContent: text,
+            });
+          } else if (isPreviewable(note.mimeType)) {
+            const url = getObjectUrl(notesId, blob);
+            setPreviewData({
+              fileName: note.fileName,
+              mimeType: note.mimeType,
+              objectUrl: url,
+            });
+          } else {
+            setPreviewData({
+              fileName: note.fileName,
+              mimeType: note.mimeType,
+            });
+          }
+        }
+      } else {
+        // New file chosen locally
+        const mimeType = file.type || getMimeTypeFromExtension(file.name);
+        if (isTextType(mimeType)) {
+          const text = await readFileAsText(file);
+          setPreviewData({ fileName: file.name, mimeType, textContent: text });
+        } else if (isPreviewable(mimeType)) {
+          const blob = file;
+          const url = getObjectUrl(file.name + file.size, blob);
+          setPreviewData({ fileName: file.name, mimeType, objectUrl: url });
+        } else {
+          setPreviewData({ fileName: file.name, mimeType });
+        }
+      }
+    } finally {
+      setIsPreviewLoading(false);
+    }
+  };
+
+  const handleDownload = async (index: number) => {
+    const file: File = selectedFiles[index];
+    try {
+      if (file.size <= 1) {
+        const svc = notesServiceRef.current!;
+        let notesId: string | undefined;
+        if (hasNotesId(file)) {
+          notesId = file.notesId;
+        } else {
+          const fileName: string = (file as File).name;
+          notesId = await svc.getNotesId(fileName, parentRecordId);
+        }
+        if (!notesId) return;
+        if (!hasNotesId(file)) {
+          (file as FileWithNoteId).notesId = notesId;
+        }
+        const note = await svc.retrieveNote(notesId);
+        if (note) {
+          const blob = base64ToBlob(note.base64, note.mimeType);
+          triggerBrowserDownload(blob, note.fileName);
+        }
+      } else {
+        triggerBrowserDownload(file, file.name);
+      }
+    } catch (e) {
+      console.error("Download failed", e);
+    }
+  };
+
   return (
     <div
       className={`file-uploader-container ${isDragging ? "drag-active" : ""}`}
@@ -211,7 +367,12 @@ export const FileUploaderComponent: React.FC<FileUploaderComponentProps> = (
             mode={newFilesCount > 0 ? "selected" : "uploaded"}
             onAddFiles={handlePickFilesClick}
           />
-          <FileGrid files={selectedFiles} onRemove={handleFileRemove} />
+          <FileGrid
+            files={selectedFiles}
+            onRemove={handleFileRemove}
+            onPreview={handlePreview}
+            onDownload={handleDownload}
+          />
           {uploadProgress && uploadProgress.filesWithProgress.length > 0 && (
             <div className="upload-progress-wrapper">
               <UploadProgress
@@ -252,6 +413,15 @@ export const FileUploaderComponent: React.FC<FileUploaderComponentProps> = (
         title={dialogContent.title}
         subText={dialogContent.subText}
         onDismiss={() => setShowSizeLimitDialog(false)}
+      />
+      <PreviewDialog
+        isOpen={isPreviewOpen}
+        data={previewData}
+        isLoading={isPreviewLoading}
+        onDismiss={() => {
+          setIsPreviewOpen(false);
+          setPreviewData(null);
+        }}
       />
     </div>
   );

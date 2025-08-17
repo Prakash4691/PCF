@@ -11,8 +11,10 @@ export const getFileInfo = (file: File): FileInfo => {
 
   // Map file types to appropriate icons
   if (
-    fileType.includes("image") ||
-    ["jpg", "jpeg", "png", "gif", "bmp", "webp"].includes(fileExtension)
+    fileType.startsWith("image/") ||
+    ["jpg", "jpeg", "png", "gif", "bmp", "webp", "svg", "ico"].includes(
+      fileExtension
+    )
   ) {
     icon = "FileImage";
     fileType = "Image";

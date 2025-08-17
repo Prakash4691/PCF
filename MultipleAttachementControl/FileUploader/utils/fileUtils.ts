@@ -14,8 +14,8 @@ export function arrayBufferToBase64(buffer: ArrayBuffer): string {
   for (let i = 0; i < len; i++) {
     binary += String.fromCharCode(bytes[i]);
   }
-
-  return binary;
+  // Properly base64 encode the binary string
+  return btoa(binary);
 }
 
 /**
@@ -52,4 +52,19 @@ export async function readFileAsDataURL(file: File): Promise<string> {
     reader.onerror = () => reject(reader.error);
     reader.readAsDataURL(file);
   });
+}
+
+/**
+ * Decode base64 (no data URL prefix) into bytes. Useful for context.device.pickFile output
+ * when we need to reconstruct a File without inadvertent UTF-16 expansion that corrupts binaries.
+ */
+export function base64ToUint8Array(base64: string): Uint8Array {
+  const cleaned = base64.includes(",") ? base64.split(",").pop() || "" : base64;
+  const binary = atob(cleaned);
+  const len = binary.length;
+  const bytes = new Uint8Array(len);
+  for (let i = 0; i < len; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes;
 }
