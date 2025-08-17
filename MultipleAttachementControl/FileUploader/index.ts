@@ -29,6 +29,7 @@ export class MultipleFileUploader
   private showDialog: boolean;
   private dataverseService: DataverseNotesOperations;
   private uploadProgress: FileUploadProgress | null = null;
+  private triggerSaveRefresh = "";
 
   /**
    * Used to initialize the control instance
@@ -570,6 +571,15 @@ export class MultipleFileUploader
       this.uploadProgress = null;
     }
 
+    // Trigger save and refresh if any files were successfully uploaded
+    if (
+      this.selectedFiles.some(
+        (f) => f.isExisting || f.uploadStatus === "completed"
+      )
+    ) {
+      this.triggerSaveRefresh = new Date().toISOString(); // Use timestamp to ensure change is detected
+    }
+
     this.notifyOutputChanged();
   };
 
@@ -580,6 +590,7 @@ export class MultipleFileUploader
     return {
       fileData: this.fileDataValue,
       isUploading: this.isUploading,
+      triggerSaveRefresh: this.triggerSaveRefresh,
     };
   }
 
