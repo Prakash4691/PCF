@@ -136,7 +136,7 @@ PRs welcome: lint (`npm run lint`), build (`npm run build`), keep manifest & REA
 
 ## Demo
 
-Video: https://www.youtube.com/watch?v=r1ed2kB8o-Q
+Video: https://youtu.be/IcgaxKI8nkU
 
 ---
 
