@@ -10,7 +10,8 @@
     <property name="parentEntityName" display-name-key="Parent Entity Name" description-key="Logical name of the parent entity to associate notes with" of-type="SingleLine.Text" usage="input" required="true" />
     <property name="parentRecordId" display-name-key="Parent Entity RecordId" description-key="GUID of the parent entity record to associate notes with" of-type="SingleLine.Text" usage="bound" required="true" />
     <property name="showDialog" display-name-key="Show Dialog" description-key="Output property to trigger a dialog with a title and message" of-type="TwoOptions" usage="output" required="false" />
-    <property name="triggerSaveRefresh" display-name-key="Trigger Save Refresh" description-key="Output property to signal when the form should be saved and refreshed after successful file upload" of-type="SingleLine.Text" usage="output" required="false" />
+    <!-- <property name="triggerSaveRefresh" display-name-key="Trigger Save Refresh" description-key="Output property to signal when the form should be saved and refreshed after successful file upload" of-type="SingleLine.Text" usage="output" required="false" /> -->
+    <event name="filesUploaded" display-name-key="Files Uploaded" description-key="Triggered after all files are uploaded" />
     <resources>
       <code path="index.ts" order="1"/>
       <css path="css/FileUploader.css" order="1" />

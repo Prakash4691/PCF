@@ -29,7 +29,7 @@ export class MultipleFileUploader
   private showDialog: boolean;
   private dataverseService: DataverseNotesOperations;
   private uploadProgress: FileUploadProgress | null = null;
-  private triggerSaveRefresh = "";
+  //private triggerSaveRefresh = "";
 
   /**
    * Used to initialize the control instance
@@ -44,6 +44,15 @@ export class MultipleFileUploader
     this.dataverseService = new DataverseNotesOperations(context);
     // IMPORTANT: assign parentRecordId BEFORE parsing existing files so notesId lookups work
     this.parentRecordId = context.parameters.parentRecordId.raw;
+
+    // Request resize tracking so allocatedWidth/allocatedHeight are updated (per Microsoft docs trackContainerResize)
+    try {
+      // true indicates we want height updates as well
+      this.context.mode.trackContainerResize(true);
+    } catch (e) {
+      // Fail silently if API not available (older harness versions)
+      console.warn("trackContainerResize not available", e);
+    }
 
     if (context.parameters.fileData.raw) {
       this.parseExistingFieldValue(context.parameters.fileData.raw);
@@ -105,6 +114,8 @@ export class MultipleFileUploader
       blockedFileExtension: this.blockedFileExtension,
       showDialog: null,
       uploadProgress: this.uploadProgress,
+      allocatedWidth: context.mode?.allocatedWidth,
+      allocatedHeight: context.mode?.allocatedHeight,
     });
   }
 
@@ -430,6 +441,7 @@ export class MultipleFileUploader
    */
   private onSubmitFiles = async (): Promise<void> => {
     let errorMessage: string = null;
+    let completedFiles = 0;
     this.isUploading = true;
     this.uploadMessage = null;
     this.operationType = "Creating Notes...";
@@ -462,7 +474,6 @@ export class MultipleFileUploader
       }
 
       const totalFiles = filesToUpload.length;
-      let completedFiles = 0;
       const filesWithNotesId: FileWithContent[] = [];
 
       let i = 0;
@@ -570,17 +581,17 @@ export class MultipleFileUploader
       // Clear upload progress on error
       this.uploadProgress = null;
     }
-
-    // Trigger save and refresh if any files were successfully uploaded
+    // After all uploads and error handling
     if (
-      this.selectedFiles.some(
-        (f) => f.isExisting || f.uploadStatus === "completed"
-      )
+      completedFiles === filesToUpload.length &&
+      !errorMessage &&
+      this.context &&
+      this.context.events &&
+      typeof this.context.events.filesUploaded === "function"
     ) {
-      this.triggerSaveRefresh = new Date().toISOString(); // Use timestamp to ensure change is detected
+      //this.triggerSaveRefresh = new Date().toISOString(); // Use timestamp to ensure change is detected
+      this.context.events.filesUploaded();
     }
-
-    this.notifyOutputChanged();
   };
 
   /**
@@ -590,7 +601,7 @@ export class MultipleFileUploader
     return {
       fileData: this.fileDataValue,
       isUploading: this.isUploading,
-      triggerSaveRefresh: this.triggerSaveRefresh,
+      //triggerSaveRefresh: this.triggerSaveRefresh,
     };
   }
 

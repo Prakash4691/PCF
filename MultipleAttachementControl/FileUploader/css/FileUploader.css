@@ -11,8 +11,33 @@
   /* Allow vertical scroll only; prevent horizontal scroll */
   overflow-y: auto;
   overflow-x: hidden;
-  max-height: 500px;
+  /* Remove fixed max-height and allow responsive rules to control */
   box-shadow: var(--shadow2, 0 1px 2px rgba(0, 0, 0, 0.04));
+}
+
+/* When host gives an explicit height we stretch to 100% (minus small padding handled by container's own padding) */
+.file-uploader-container.has-host-height {
+  height: 100%;
+  max-height: 100%;
+}
+
+/* Natural auto sizing when no height constraint (-1) */
+.file-uploader-container.auto-height {
+  max-height: none;
+}
+
+/* Width-based utility breakpoints from runtime classes (no JS layout thrash) */
+.file-uploader-container.is-xs {
+  padding: var(--spacingHorizontalM, 12px);
+}
+.file-uploader-container.is-sm {
+  padding: var(--spacingHorizontalM, 16px);
+}
+.file-uploader-container.is-md {
+  padding: var(--spacingHorizontalL, 20px);
+}
+.file-uploader-container.is-lg {
+  padding: var(--spacingHorizontalXL, 24px);
 }
 
 .file-uploader-container:hover {
@@ -128,9 +153,9 @@
   background-color: var(--colorNeutralBackground1, #ffffff);
   position: relative;
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-  min-width: 260px;
-  max-width: 320px;
-  flex: 1 1 260px; /* allow wrapping & shrinking */
+  min-width: 220px;
+  max-width: 340px;
+  flex: 1 1 clamp(160px, 45%, 260px); /* allow wrapping & shrinking, narrower on phones */
   box-sizing: border-box;
   box-shadow: var(--shadow2, 0 1px 2px rgba(0, 0, 0, 0.04));
 }
@@ -504,26 +529,52 @@
 }
 
 /* Responsive design for smaller screens */
-@media (max-width: 768px) {
-  .file-grid {
-    gap: var(--spacingHorizontalS, 8px);
-  }
-
+@media (max-width: 900px) {
   .file-card {
-    min-width: 250px;
-    flex: 0 0 250px;
+    flex: 1 1 clamp(180px, 48%, 260px);
   }
 }
 
-@media (max-width: 480px) {
+@media (max-width: 600px) {
+  .file-grid {
+    gap: var(--spacingHorizontalS, 8px);
+  }
+  .file-card {
+    flex: 1 1 clamp(150px, 100%, 220px);
+    min-width: 160px;
+  }
+  .file-card .file-card-actions .action-button,
+  .file-card .remove-button {
+    width: 32px;
+    height: 32px;
+    min-width: 32px;
+  }
+}
+
+@media (max-width: 420px) {
   .file-grid {
     flex-direction: column;
   }
-
   .file-card {
     min-width: 100%;
-    flex: 1 1 auto;
+    flex: 1 1 100%;
   }
+}
+
+/* Provide a visually distinct message style (simple) */
+.upload-message {
+  margin-top: 8px;
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--colorNeutralForeground2, #616161);
+}
+.upload-message.message-0 {
+  /* success */
+  color: var(--colorStatusSuccessForeground1, #107c10);
+}
+.upload-message.message-1 {
+  /* error */
+  color: var(--colorStatusDangerForeground1, #d13438);
 }
 
 /* Reduced motion support */

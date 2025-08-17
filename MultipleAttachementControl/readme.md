@@ -1,80 +1,143 @@
-# React Fluent UI Multiple Attachment (File Upload) PCF Control
+# Multiple File Attachment (Dataverse Notes) PCF Control
 
-## Introduction
+Modern, responsive multi-file uploader for Model‑Driven Apps. Built with React + Fluent UI. Stores each file as a Dataverse Note (annotation) linked to a parent record. Supports drag & drop, blocked extensions, per‑file progress, preview, download, and deletion with confirmation.
 
-This project is a Multiple Attachment (File Upload) control built using React and Fluent UI for Microsoft Power Apps Component Framework (PCF). It enables users to upload, preview, and manage multiple file attachments (as Notes) on a Dataverse record, supporting modern drag-and-drop and file selection experiences. The control is designed for Model-Driven Apps and leverages Dataverse's annotation (note) entity for file storage.
+## Key Features
 
-## Configuration
+- Drag & drop or device file picker (`Device.pickFile`)
+- Multi-file batch upload with per‑file progress & status
+- Duplicate file name detection (prompts instead of overwriting)
+- Blocked extensions (semicolon separated list) with consolidated dialog feedback
+- Max file size enforcement (per file) before upload (handled at selection / pick)
+- Inline delete (removes underlying annotation) with confirmation
+- Lightweight existing file representation (1‑byte placeholder File objects until preview/download)
+- Previews: image, PDF (iframe), and text / JSON / XML (rendered text). All types downloadable.
+- Responsive layout via `trackContainerResize(true)` and width breakpoints (`is-xs|is-sm|is-md|is-lg`)
+- Event `filesUploaded` fired after all selected new files complete successfully
 
-To configure the control, set the following properties in the PCF control configuration:
+## Installation / Build
 
-### Property 1: `Parent Entity Name`
+1. Clone repository
+2. Install dependencies inside `MultipleAttachementControl`:
+   ```bash
+   npm install
+   ```
+3. Build the control:
+   ```bash
+   npm run build
+   ```
+4. (Optional) Local harness / debug:
+   ```bash
+   npm start
+   ```
+5. Package & deploy (import the prebuilt solution zip under `FileUploaderSolution` or create your own solution and add the control).
+6. Add the control to a Model‑Driven form and map properties (see below).
 
-- **Description**: Logical name of the parent entity (table) to which files will be attached as notes.
-- **Example**: `opportunity`, `account`, `contact`
+## Dataverse Configuration Properties
 
-### Property 2: `Parent Record ID`
+| Manifest Name              | Type / Usage              | Required | Purpose / Notes                                                                                                                 |
+| -------------------------- | ------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `parentEntityName`         | Input (Single Line Text)  | Yes      | Logical name of table (e.g. `account`, `opportunity`). Used to build annotation relationship bind path.                         |
+| `parentRecordId`           | Bound (Single Line Text)  | Yes      | The GUID of the current record (usually map to primary key column). Control will not upload if missing.                         |
+| `fileData`                 | Bound (Multiple)          | Yes      | Stores a comma‑separated list of URI‑encoded file names. Used to render existing files. Modify only via control.                |
+| `isUploading`              | Bound (Two Options)       | Yes      | Reflects current upload/delete activity (true while processing). Can be surfaced in form logic or ribbon rules.                 |
+| `blockedFileExtension`     | Input (Multiple)          | Yes      | Semicolon separated list of disallowed extensions (e.g. `exe;bat;cmd`). Comparison is case‑insensitive, no leading dots needed. |
+| `maxFileSizeForAttachment` | Input (Text - numeric KB) | Yes      | Max file size (KB). Converted to bytes internally. Files above limit prompt a size dialog.                                      |
+| Event: `filesUploaded`     | Output event              | -        | Raised after all pending uploads finish successfully; use to trigger custom form logic (save, refresh, notifications).          |
 
-- **Description**: The unique identifier (GUID) of the parent record. This is typically mapped to the record's primary key field. Select primary entity id column from list
-- **Example**: `Account (Text)`
+> Note: A commented optional property `triggerSaveRefresh` exists in code but is not active in the manifest; auto‑save can instead be implemented by handling the `filesUploaded` event in a form script.
 
-### Property 3: `File Data Field`
+## Data Storage Format (`fileData`)
 
-- **Description**: The text field in the entity where the comma-separated list of file names will be stored. Used for displaying and managing existing files.
-- **Example**: `fileData`
+- Control writes: `encodeURIComponent(name1),encodeURIComponent(name2),...`
+- Existing (legacy) unencoded values with commas inside names are heuristically reassembled.
+- Always treat `fileData` as internal; do not manually append raw names containing commas without encoding.
 
-### Property 4: `Is Uploading`
+## Typical Usage Flow
 
-- **Description**: Create two option field and configure for isUploading property. This is to display while creation and deletion of notes.
-- **Example**: `isUploading`
+1. Place control on a form section targeting a record form (edit mode preferred).
+2. Map properties (see table above).
+3. Set allowed strategy: enter blocked extensions and maximum size (KB) in property panel.
+4. Publish.
+5. User drags files or clicks area to open picker; duplicates are prevented.
+6. Click Upload – each file becomes an annotation; progress displayed per file.
+7. Delete removes annotation (confirmation dialog) and updates `fileData`.
+8. Preview or download existing files on demand (content only retrieved when needed).
 
-## Installation
+## Preview & Download Support
 
-Download the latest solution zip from the repo and import it into your environment, or use the Power Platform CLI:
+| Capability    | Types                                                              | Behavior                                     |
+| ------------- | ------------------------------------------------------------------ | -------------------------------------------- |
+| Image preview | image/\*                                                           | Rendered via `<img>` with object URL caching |
+| PDF preview   | application/pdf                                                    | Displayed in `<iframe>` (browser viewer)     |
+| Text preview  | text/\*, application/json, application/xml, application/javascript | Contents streamed & shown as text            |
+| Other types   | any                                                                | Not previewed; download still available      |
 
-```powershell
-pac solution import --path C:\Path\To\FileUploaderSolution.zip
+Flow: Placeholder file (size 1) -> On preview/download the control fetches annotation (`documentbody`), converts base64 to Blob, then renders or triggers download. Object URLs cached for session reuse.
+
+## Progress & Status
+
+- Status per file: pending → uploading (25/50/75% checkpoints) → completed or error
+- Failed files are removed from list with consolidated error message referencing the last error captured
+- Upload panel auto-clears progress state after a short delay (currently 3s)
+
+## Event Handling
+
+Handle `filesUploaded` in a form script (classic or modern) to perform follow‑up actions (save, refresh timeline, show notification). Pseudocode example:
+
+```javascript
+function onFilesUploaded(executionContext) {
+  const formCtx = executionContext.getFormContext();
+  formCtx.data.save(); // or custom logic
+}
+// Register on the PCF control's filesUploaded event in form designer
 ```
 
-## Usage
+## Extensibility Points
 
-After importing the solution, follow these steps to use the Multiple Attachment control:
+- Add more MIME mappings in `utils/mimeTypes.ts`.
+- Enhance annotation queries / security in `services/DataverseNotesOperations.ts`.
+- Extend preview logic (e.g., Office docs -> online viewer) in `utils/filePreviewUtils.ts`.
+- Re‑enable auto‑save by uncommenting the manifest property and setting a field or simply using the event.
 
-1. **Choose a Text Field**: Select or create a text field in your form to bind the control (for storing file names).
-2. **Configure the Control**:
-   - Open the form editor and select the text field.
-   - In the field properties, go to the "Components" section.
-   - Add the Multiple Attachment (File Upload) control from the list.
-3. **Set Properties**:
-   - Set the `Parent Entity Name` and `Parent Record ID` properties as per your scenario.
-   - Optionally, configure file size limits and allowed file types in the manifest if needed.
-4. **Save and Publish**:
-   - Save the form and publish your customizations.
+## Troubleshooting
 
-## Features
+| Issue                                        | Cause                                      | Resolution                                                                     |
+| -------------------------------------------- | ------------------------------------------ | ------------------------------------------------------------------------------ |
+| No upload button action / error about parent | `parentRecordId` empty (form in Create)    | Require record save first; hide control on Create until record exists.         |
+| Files silently skipped                       | Duplicate names detected                   | Rename locally or delete existing copy first.                                  |
+| Blocked file dialog appears                  | Extension matches list                     | Remove extension from `blockedFileExtension` or rename file with allowed type. |
+| Size limit dialog                            | Over configured `maxFileSizeForAttachment` | Increase limit (respect tenant max) or reduce file size.                       |
+| Preview blank for large file                 | Non‑previewable type or unsupported viewer | Download instead; extend preview logic if needed.                              |
+| Delete seems slow                            | NotesId lookup + delete call               | Network latency; monitor in browser dev tools.                                 |
 
-- **Modern UI**: Built with Fluent UI for a responsive, accessible experience.
-- **Drag-and-Drop**: Easily drag files into the upload area or use the file picker.
-- **File Preview**: Shows file icons, types, and sizes for selected and existing files.
-- **Multiple File Upload**: Upload several files at once, with progress indication.
-- **Existing File Management**: Displays files already attached to the record; allows removal (with confirmation).
-- **Note Creation**: Each uploaded file is stored as a Note (annotation) and linked to the parent record.
-- **Error Handling**: User-friendly messages for upload errors, file size limits, and Dataverse constraints.
-- **Responsive Design**: Works well in various form factors and screen sizes.
+### Known Limitations
 
-## How it works
+- Relies on annotation entity (per‑record total storage & size governed by Dataverse limits).
+- Does not batch upload across multiple records.
+- No retry queue for failures (manual re‑upload required).
+- Access/security relies on standard Dataverse privileges (no custom access checks).
 
-- The control parses the configured text field for a comma-separated list of file names to display existing attachments.
-- New files are uploaded as Notes (annotation records) and associated with the parent record.
-- File removal deletes the corresponding Note after user confirmation.
-- Progress and status messages are shown during upload and deletion operations.
+## Responsive Behavior Summary
 
-## Technical Considerations
+Height & width from host drive layout classes: <450 (`is-xs`), <700 (`is-sm`), <1024 (`is-md`), else `is-lg`. Height >0 -> container stretches; otherwise natural height. File cards flex/wrap adaptively.
 
-- **File Size Limits**: Respects Dataverse attachment limits (default 10MB per file, configurable).
-- **Performance**: Efficient file handling and batch processing for multiple uploads.
-- **Error Handling**: Validation and recovery for upload failures.
+## Tech Stack
 
-## Video Demo
+- PCF (virtual control)
+- React 16.14 + Fluent UI 8
+- TypeScript
 
-https://www.youtube.com/watch?v=r1ed2kB8o-Q
+## Contributing
+
+PRs welcome: lint (`npm run lint`), build (`npm run build`), keep manifest & README property tables in sync. Please describe functional changes clearly.
+
+## License
+
+## Demo
+
+Video: https://www.youtube.com/watch?v=r1ed2kB8o-Q
+
+---
+
+Maintained component: feedback & enhancements encouraged.

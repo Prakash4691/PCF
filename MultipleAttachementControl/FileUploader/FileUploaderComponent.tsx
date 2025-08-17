@@ -43,6 +43,8 @@ export const FileUploaderComponent: React.FC<FileUploaderComponentProps> = (
     blockedFileExtension,
     showDialog,
     uploadProgress,
+    allocatedWidth,
+    allocatedHeight,
   } = props;
 
   const [isDragging, setIsDragging] = React.useState(false);
@@ -332,7 +334,21 @@ export const FileUploaderComponent: React.FC<FileUploaderComponentProps> = (
 
   return (
     <div
-      className={`file-uploader-container ${isDragging ? "drag-active" : ""}`}
+      className={`file-uploader-container ${isDragging ? "drag-active" : ""} ${
+        allocatedWidth && allocatedWidth < 450
+          ? "is-xs"
+          : allocatedWidth && allocatedWidth < 700
+          ? "is-sm"
+          : allocatedWidth && allocatedWidth < 1024
+          ? "is-md"
+          : "is-lg"
+      } ${
+        typeof allocatedHeight === "number" && allocatedHeight > 0
+          ? "has-host-height"
+          : "auto-height"
+      }`}
+      data-allocated-width={allocatedWidth}
+      data-allocated-height={allocatedHeight}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
@@ -373,6 +389,15 @@ export const FileUploaderComponent: React.FC<FileUploaderComponentProps> = (
             onPreview={handlePreview}
             onDownload={handleDownload}
           />
+          {/* Optional upload message display near actions for clarity */}
+          {uploadMessage && (
+            <div
+              role="status"
+              className={`upload-message message-${uploadMessage.type}`}
+            >
+              {uploadMessage.text}
+            </div>
+          )}
           {uploadProgress && uploadProgress.filesWithProgress.length > 0 && (
             <div className="upload-progress-wrapper">
               <UploadProgress
