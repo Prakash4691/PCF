@@ -607,20 +607,7 @@
 }
 
 /* Provide a visually distinct message style (simple) */
-.upload-message {
-  margin-top: 8px;
-  font-size: 12px;
-  line-height: 16px;
-  color: var(--colorNeutralForeground2, #616161);
-}
-.upload-message.message-0 {
-  /* success */
-  color: var(--colorStatusSuccessForeground1, #107c10);
-}
-.upload-message.message-1 {
-  /* error */
-  color: var(--colorStatusDangerForeground1, #d13438);
-}
+/* Removed .upload-message styles - messages now use MessageBar component */
 
 /* Reduced motion support */
 @media (prefers-reduced-motion: reduce) {

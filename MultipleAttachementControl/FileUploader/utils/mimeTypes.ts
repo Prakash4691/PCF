@@ -21,6 +21,22 @@ export function inferMimeTypeFromFileName(extension: string): string {
   if (extension === "pptx")
     return "application/vnd.openxmlformats-officedocument.presentationml.presentation";
   if (extension === "txt") return "text/plain";
+  if (extension === "json") return "application/json";
+  if (extension === "xml") return "application/xml";
+  if (extension === "js") return "application/javascript";
+  if (extension === "ts") return "application/typescript";
+  if (extension === "html") return "text/html";
+  if (extension === "htm") return "text/html";
+  if (extension === "css") return "text/css";
+  if (extension === "md") return "text/markdown";
+  if (extension === "rtf") return "application/rtf";
+  if (extension === "csv") return "text/csv";
+  if (["zip", "7z"].includes(extension)) return "application/zip";
+  if (extension === "rar") return "application/vnd.rar";
+  if (extension === "tar") return "application/x-tar";
+  if (extension === "gz") return "application/gzip";
+  if (["mp4", "mov", "avi", "wmv", "flv", "webm"].includes(extension)) return "video/mp4";
+  if (["mp3", "wav", "ogg", "flac", "m4a"].includes(extension)) return "audio/mpeg";
 
   // Default
   return "application/octet-stream";

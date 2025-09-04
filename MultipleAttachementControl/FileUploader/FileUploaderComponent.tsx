@@ -1,7 +1,10 @@
 import * as React from "react";
 import { Icon } from "@fluentui/react/lib/Icon";
 import { initializeIcons } from "@fluentui/react/lib/Icons";
-import { FileUploaderComponentProps } from "./types/interfaces";
+import {
+  FileUploaderComponentProps,
+  FileWithContent,
+} from "./types/interfaces";
 import { DeleteConfirmationDialog } from "./components/dialogs/DeleteConfirmationDialog";
 import { SizeLimitDialog } from "./components/dialogs/SizeLimitDialog";
 import { FileGrid } from "./components/FileGrid/FileGrid";
@@ -20,6 +23,7 @@ import {
   triggerBrowserDownload,
 } from "./utils/filePreviewUtils";
 import { DataverseNotesOperations } from "./services/DataverseNotesOperations";
+import { inferMimeTypeFromFileName } from "./utils/mimeTypes";
 
 // Initialize the FluentUI icons
 initializeIcons();
@@ -73,6 +77,15 @@ export const FileUploaderComponent: React.FC<FileUploaderComponentProps> = (
   const [isPreviewOpen, setIsPreviewOpen] = React.useState(false);
   const [isPreviewLoading, setIsPreviewLoading] = React.useState(false);
 
+  // Removed timeline message state - using only the main uploadMessage from parent
+
+  // Timeline integration state
+  const [timelineFiles, setTimelineFiles] = React.useState<FileWithContent[]>(
+    []
+  );
+  const [isLoadingTimeline, setIsLoadingTimeline] = React.useState(false);
+  const [mergedFiles, setMergedFiles] = React.useState<File[]>([]);
+
   if (!notesServiceRef.current) {
     notesServiceRef.current = new DataverseNotesOperations(context);
   }
@@ -95,6 +108,172 @@ export const FileUploaderComponent: React.FC<FileUploaderComponentProps> = (
     Object.prototype.hasOwnProperty.call(f, "notesId") &&
     typeof (f as FileWithNoteId).notesId === "string" &&
     !!(f as FileWithNoteId).notesId;
+
+  // Function to fetch timeline notes
+  const fetchTimelineFiles = React.useCallback(async () => {
+    if (!parentRecordId || !notesServiceRef.current) return;
+
+    setIsLoadingTimeline(true);
+    try {
+      const timelineNotes = await notesServiceRef.current.getAllNotesForRecord(
+        parentRecordId
+      );
+      const timelineFileObjects: FileWithContent[] = [];
+
+      for (const note of timelineNotes) {
+        // Create placeholder File object similar to existing files
+        const extension = note.filename.split(".").pop()?.toLowerCase() || "";
+        const mimeType = note.mimetype || inferMimeTypeFromFileName(extension);
+
+        const file = new File([new ArrayBuffer(1)], note.filename, {
+          type: mimeType,
+        });
+
+        // Attach notesId to file object for preview/download
+        (file as FileWithNoteId).notesId = note.annotationid;
+
+        const timelineFile: FileWithContent = {
+          file,
+          isExisting: true,
+          notesId: note.annotationid,
+          uploadProgress: 100,
+          uploadStatus: "completed",
+          source: "timeline",
+          guid: note.annotationid,
+          subject: note.subject,
+          noteText: note.notetext,
+          createdOn: note.createdon ? new Date(note.createdon) : undefined,
+          modifiedOn: note.modifiedon ? new Date(note.modifiedon) : undefined,
+          createdBy: note.createdby,
+        };
+
+        timelineFileObjects.push(timelineFile);
+      }
+
+      setTimelineFiles(timelineFileObjects);
+    } catch (error) {
+      console.error("Error fetching timeline files:", error);
+      setTimelineFiles([]); // Set empty array on error
+    } finally {
+      setIsLoadingTimeline(false);
+    }
+  }, [parentRecordId]);
+
+  // Function to merge files intelligently (prevent duplicates)
+  const mergeFiles = React.useCallback(
+    (pcfFiles: File[], timelineFiles: FileWithContent[]): File[] => {
+      console.log(
+        "Merging files - PCF:",
+        pcfFiles.length,
+        "Timeline:",
+        timelineFiles.length
+      );
+
+      const merged: File[] = [];
+      const processedGuids = new Set<string>();
+      const processedNames = new Set<string>();
+      const timelineFilesByGuid = new Map<string, FileWithContent>();
+      const timelineFilesByName = new Map<string, FileWithContent>();
+
+      // Index timeline files by both GUID and name for efficient lookup
+      timelineFiles.forEach((timelineFile) => {
+        if (timelineFile.guid) {
+          timelineFilesByGuid.set(timelineFile.guid, timelineFile);
+        }
+        timelineFilesByName.set(timelineFile.file.name, timelineFile);
+      });
+
+      // Process PCF files first - these are authoritative (from actual control fileData)
+      pcfFiles.forEach((file) => {
+        const fileWithNoteId = file as FileWithNoteId;
+        const pcfGuid = fileWithNoteId.notesId;
+
+        // Always add PCF file to merged list - it's authoritative
+        merged.push(file);
+        processedNames.add(file.name);
+
+        if (pcfGuid) {
+          processedGuids.add(pcfGuid);
+        }
+      });
+
+      // Add only timeline files that DON'T have corresponding PCF files
+      timelineFiles.forEach((timelineFile) => {
+        const alreadyProcessedByGuid =
+          timelineFile.guid && processedGuids.has(timelineFile.guid);
+        const alreadyProcessedByName = processedNames.has(
+          timelineFile.file.name
+        );
+
+        // Only add timeline files that are NOT already represented by PCF files
+        if (!alreadyProcessedByGuid && !alreadyProcessedByName) {
+          merged.push(timelineFile.file);
+          if (timelineFile.guid) {
+            processedGuids.add(timelineFile.guid);
+          }
+          processedNames.add(timelineFile.file.name);
+        }
+      });
+
+      console.log("Merged", merged.length, "files total");
+
+      return merged;
+    },
+    []
+  );
+
+  // Effect to fetch timeline files when parent record changes
+  React.useEffect(() => {
+    if (parentRecordId) {
+      fetchTimelineFiles();
+    }
+  }, [parentRecordId, fetchTimelineFiles]);
+
+  // Effect to merge PCF and timeline files
+  React.useEffect(() => {
+    const merged = mergeFiles(selectedFiles, timelineFiles);
+    setMergedFiles(merged);
+  }, [selectedFiles, timelineFiles, mergeFiles]);
+
+  // Create metadata map for enhanced file display
+  const fileMetadata = React.useMemo(() => {
+    const metadataMap = new Map<string, FileWithContent>();
+
+    // Create metadata with proper priority: PCF files (from control) take precedence over timeline
+    let pcfCount = 0,
+      timelineCount = 0;
+
+    mergedFiles.forEach((file) => {
+      const pcfFile = selectedFiles.find((sf) => sf.name === file.name);
+      const timelineFile = timelineFiles.find(
+        (tf) => tf.file.name === file.name
+      );
+
+      // Priority 1: PCF file exists - this means user uploaded via control, use fileupload source
+      if (pcfFile) {
+        pcfCount++;
+        metadataMap.set(file.name, {
+          file,
+          isExisting: file.size <= 1,
+          source: "fileupload",
+          uploadStatus: file.size <= 1 ? "completed" : "pending",
+          uploadProgress: file.size <= 1 ? 100 : 0,
+          guid: (pcfFile as any).notesId, // Preserve notesId if available
+        });
+      }
+      // Priority 2: Timeline-only file (no corresponding PCF file)
+      else if (timelineFile) {
+        timelineCount++;
+        metadataMap.set(file.name, timelineFile);
+      }
+    });
+
+    console.log(
+      `Metadata created: ${pcfCount} PCF files, ${timelineCount} timeline-only files`
+    );
+
+    return metadataMap;
+  }, [selectedFiles, timelineFiles, mergedFiles]);
 
   React.useEffect(() => {
     if (showDialog) {
@@ -224,18 +403,53 @@ export const FileUploaderComponent: React.FC<FileUploaderComponentProps> = (
     }
   };
 
+  // Handler for timeline file deletion
+  const handleTimelineFileDelete = async (fileName: string) => {
+    try {
+      const metadata = fileMetadata.get(fileName);
+      if (!metadata?.guid || metadata.source !== "timeline") return;
+
+      const svc = notesServiceRef.current!;
+      await svc.deleteNote(metadata.guid);
+
+      // Remove from timeline files state
+      setTimelineFiles((prev) => prev.filter((f) => f.file.name !== fileName));
+
+      setShowDeleteDialog(false);
+    } catch (error) {
+      console.error("Error deleting timeline file:", error);
+    }
+  };
+
   const handleFileRemove = (index: number) => {
-    const fileInfo = selectedFiles[index];
-    if (fileInfo.size <= 1) {
-      setFileToDelete({ index, name: fileInfo.name });
-      setShowDeleteDialog(true);
+    const file = mergedFiles[index];
+    const metadata = fileMetadata.get(file.name);
+
+    // Determine if this is a timeline file or PCF file
+    if (metadata?.source === "timeline") {
+      // Timeline file - handle delete directly
+      if (file.size <= 1) {
+        setFileToDelete({ index, name: file.name });
+        setShowDeleteDialog(true);
+      }
     } else {
-      onFileRemoved(index);
+      // PCF file - find the corresponding index in selectedFiles and delegate to parent
+      const selectedFileIndex = selectedFiles.findIndex(
+        (f) => f.name === file.name
+      );
+      if (selectedFileIndex !== -1) {
+        if (file.size <= 1) {
+          setFileToDelete({ index: selectedFileIndex, name: file.name });
+          setShowDeleteDialog(true);
+        } else {
+          onFileRemoved(selectedFileIndex);
+        }
+      }
     }
   };
 
   const handlePreview = async (index: number) => {
-    const file: File = selectedFiles[index];
+    const file: File = mergedFiles[index];
     setIsPreviewOpen(true);
     setIsPreviewLoading(true);
     try {
@@ -304,7 +518,7 @@ export const FileUploaderComponent: React.FC<FileUploaderComponentProps> = (
   };
 
   const handleDownload = async (index: number) => {
-    const file: File = selectedFiles[index];
+    const file: File = mergedFiles[index];
     try {
       if (file.size <= 1) {
         const svc = notesServiceRef.current!;
@@ -357,7 +571,7 @@ export const FileUploaderComponent: React.FC<FileUploaderComponentProps> = (
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
     >
-      {selectedFiles.length === 0 ? (
+      {mergedFiles.length === 0 && !isLoadingTimeline ? (
         <div className="file-uploader-content" onClick={handlePickFilesClick}>
           <Icon iconName="Upload" className="upload-icon" />
           <div className="file-uploader-text">
@@ -377,31 +591,26 @@ export const FileUploaderComponent: React.FC<FileUploaderComponentProps> = (
             title="Choose files to upload"
           />
         </div>
+      ) : isLoadingTimeline && mergedFiles.length === 0 ? (
+        <div className="loading-timeline">
+          <Icon iconName="Loading" className="loading-icon" />
+          <div>Loading timeline files...</div>
+        </div>
       ) : (
         <>
           <FileHeader
-            fileCount={
-              // If there are new files pending upload show that count with Selected, else show uploaded count
-              newFilesCount > 0 ? newFilesCount : uploadedFilesCount
-            }
+            fileCount={newFilesCount > 0 ? newFilesCount : mergedFiles.length} // Show total count of all files (PCF + timeline)
             mode={newFilesCount > 0 ? "selected" : "uploaded"}
             onAddFiles={handlePickFilesClick}
           />
           <FileGrid
-            files={selectedFiles}
+            files={mergedFiles}
+            fileMetadata={fileMetadata}
             onRemove={handleFileRemove}
             onPreview={handlePreview}
             onDownload={handleDownload}
           />
-          {/* Optional upload message display near actions for clarity */}
-          {uploadMessage && (
-            <div
-              role="status"
-              className={`upload-message message-${uploadMessage.type}`}
-            >
-              {uploadMessage.text}
-            </div>
-          )}
+          {/* Upload message is now displayed only in UploadSection component */}
           {uploadProgress && uploadProgress.filesWithProgress.length > 0 && (
             <div className="upload-progress-wrapper">
               <UploadProgress
@@ -431,8 +640,13 @@ export const FileUploaderComponent: React.FC<FileUploaderComponentProps> = (
         onDismiss={() => setShowDeleteDialog(false)}
         onConfirm={() => {
           if (fileToDelete !== null) {
-            onFileRemoved(fileToDelete.index);
-            setShowDeleteDialog(false);
+            const metadata = fileMetadata.get(fileToDelete.name);
+            if (metadata?.source === "timeline") {
+              handleTimelineFileDelete(fileToDelete.name);
+            } else {
+              onFileRemoved(fileToDelete.index);
+              setShowDeleteDialog(false);
+            }
           }
         }}
       />
