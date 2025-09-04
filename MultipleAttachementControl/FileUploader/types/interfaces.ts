@@ -24,6 +24,12 @@ export interface FileUploaderComponentProps {
   allocatedWidth?: number;
   /** Allocated height from PCF host (context.mode.allocatedHeight). Helps responsive rendering */
   allocatedHeight?: number;
+  /**
+   * Token that increments whenever the parent wants to force a refresh of timeline notes.
+   * Changing this value should trigger the component to refetch timeline files to avoid stale state
+   * after deletes/uploads.
+   */
+  timelineRefreshToken?: number;
 }
 
 export interface FileUploadProgress {
@@ -61,7 +67,7 @@ export interface FileWithContent {
   uploadProgress?: number; // 0-100 percentage
   uploadStatus?: "pending" | "uploading" | "completed" | "error";
   uploadError?: string;
-  
+
   // Enhanced metadata for timeline integration
   guid?: string; // Unique identifier for deduplication (annotation ID)
   source: "fileupload" | "timeline"; // Differentiate source

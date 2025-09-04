@@ -49,6 +49,7 @@ export const FileUploaderComponent: React.FC<FileUploaderComponentProps> = (
     uploadProgress,
     allocatedWidth,
     allocatedHeight,
+    timelineRefreshToken,
   } = props;
 
   const [isDragging, setIsDragging] = React.useState(false);
@@ -229,6 +230,18 @@ export const FileUploaderComponent: React.FC<FileUploaderComponentProps> = (
     }
   }, [parentRecordId, fetchTimelineFiles]);
 
+  // Refetch timeline when parent signals refresh (e.g., after delete/upload)
+  React.useEffect(() => {
+    if (!parentRecordId) return;
+    if (typeof timelineRefreshToken === "number") {
+      // Add a tiny backoff to avoid brief eventual consistency windows after delete
+      const t = setTimeout(() => {
+        fetchTimelineFiles();
+      }, 250);
+      return () => clearTimeout(t);
+    }
+  }, [timelineRefreshToken, parentRecordId, fetchTimelineFiles]);
+
   // Effect to merge PCF and timeline files
   React.useEffect(() => {
     const merged = mergeFiles(selectedFiles, timelineFiles);
@@ -252,13 +265,14 @@ export const FileUploaderComponent: React.FC<FileUploaderComponentProps> = (
       // Priority 1: PCF file exists - this means user uploaded via control, use fileupload source
       if (pcfFile) {
         pcfCount++;
+        const pcfWithId = pcfFile as File & { notesId?: string };
         metadataMap.set(file.name, {
           file,
           isExisting: file.size <= 1,
           source: "fileupload",
           uploadStatus: file.size <= 1 ? "completed" : "pending",
           uploadProgress: file.size <= 1 ? 100 : 0,
-          guid: (pcfFile as any).notesId, // Preserve notesId if available
+          guid: pcfWithId.notesId, // Preserve notesId if available
         });
       }
       // Priority 2: Timeline-only file (no corresponding PCF file)
