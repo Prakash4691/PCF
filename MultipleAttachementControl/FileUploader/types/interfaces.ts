@@ -39,6 +39,12 @@ export interface FileInfo {
   sizeText: string;
   fileType: string;
   isExistingFile: boolean;
+  // Enhanced metadata for timeline integration
+  source?: "fileupload" | "timeline";
+  subject?: string;
+  noteText?: string;
+  createdOn?: Date;
+  modifiedOn?: Date;
 }
 
 export interface DialogContent {
@@ -55,6 +61,15 @@ export interface FileWithContent {
   uploadProgress?: number; // 0-100 percentage
   uploadStatus?: "pending" | "uploading" | "completed" | "error";
   uploadError?: string;
+  
+  // Enhanced metadata for timeline integration
+  guid?: string; // Unique identifier for deduplication (annotation ID)
+  source: "fileupload" | "timeline"; // Differentiate source
+  subject?: string; // Note subject/title
+  noteText?: string; // Note description
+  createdOn?: Date;
+  modifiedOn?: Date;
+  createdBy?: string;
 }
 
 export interface UploadMessage {

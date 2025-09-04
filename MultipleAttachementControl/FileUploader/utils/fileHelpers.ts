@@ -1,6 +1,15 @@
 import { FileInfo } from "../types/interfaces";
 
-export const getFileInfo = (file: File): FileInfo => {
+export const getFileInfo = (
+  file: File,
+  additionalInfo?: {
+    source?: "fileupload" | "timeline";
+    subject?: string;
+    noteText?: string;
+    createdOn?: Date;
+    modifiedOn?: Date;
+  }
+): FileInfo => {
   const fileExtension = file.name.split(".").pop()?.toLowerCase() || "";
   const sizeKb = (file.size / 1024).toFixed(2); // size in KB
   const sizeMb = (file.size / (1024 * 1024)).toFixed(2); // size in MB
@@ -77,5 +86,10 @@ export const getFileInfo = (file: File): FileInfo => {
     sizeText,
     fileType,
     isExistingFile,
+    source: additionalInfo?.source,
+    subject: additionalInfo?.subject,
+    noteText: additionalInfo?.noteText,
+    createdOn: additionalInfo?.createdOn,
+    modifiedOn: additionalInfo?.modifiedOn,
   };
 };

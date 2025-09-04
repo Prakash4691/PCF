@@ -102,4 +102,94 @@ export class DataverseNotesOperations {
       return null;
     }
   }
+
+  /**
+   * Retrieves all notes with attachments for a given parent record.
+   * Returns note metadata including subject, notetext, and creation info.
+   */
+  public async getAllNotesForRecord(
+    parentRecordId: string
+  ): Promise<{
+    annotationid: string;
+    subject: string;
+    notetext: string;
+    filename: string;
+    mimetype: string;
+    createdon: string;
+    modifiedon: string;
+    createdby: string;
+  }[]> {
+    try {
+      const response = await this.context.webAPI.retrieveMultipleRecords(
+        "annotation",
+        `?$select=annotationid,subject,notetext,filename,mimetype,createdon,modifiedon,_createdby_value&$filter=_objectid_value eq ${parentRecordId} and isdocument eq true and filename ne null&$orderby=modifiedon desc`
+      );
+
+      if (!response.entities || response.entities.length === 0) {
+        return [];
+      }
+
+      return response.entities.map((entity: any) => ({
+        annotationid: entity.annotationid,
+        subject: entity.subject || entity.filename || "Untitled",
+        notetext: entity.notetext || "",
+        filename: entity.filename || "",
+        mimetype: entity.mimetype || "application/octet-stream",
+        createdon: entity.createdon || "",
+        modifiedon: entity.modifiedon || "",
+        createdby: entity._createdby_value || "",
+      }));
+    } catch (error) {
+      console.error("Error retrieving all notes for record:", error);
+      throw new Error(`Failed to retrieve notes for record ${parentRecordId}`);
+    }
+  }
+
+  /**
+   * Retrieves note summary metadata for a given annotation ID.
+   * Returns subject, notetext, and other metadata without the document body.
+   */
+  public async getNoteSummary(
+    noteId: string
+  ): Promise<{
+    subject: string;
+    notetext: string;
+    filename: string;
+    mimetype: string;
+    createdon: string;
+    modifiedon: string;
+    createdby: string;
+  } | null> {
+    try {
+      interface AnnotationSummary {
+        subject?: string;
+        notetext?: string;
+        filename?: string;
+        mimetype?: string;
+        createdon?: string;
+        modifiedon?: string;
+        _createdby_value?: string;
+      }
+      const response = (await this.context.webAPI.retrieveRecord(
+        "annotation",
+        noteId,
+        "?$select=subject,notetext,filename,mimetype,createdon,modifiedon,_createdby_value"
+      )) as unknown as AnnotationSummary;
+      
+      if (!response) return null;
+      
+      return {
+        subject: response.subject || response.filename || "Untitled",
+        notetext: response.notetext || "",
+        filename: response.filename || "",
+        mimetype: response.mimetype || "application/octet-stream",
+        createdon: response.createdon || "",
+        modifiedon: response.modifiedon || "",
+        createdby: response._createdby_value || "",
+      };
+    } catch (error) {
+      console.error("Error retrieving note summary", error);
+      return null;
+    }
+  }
 }

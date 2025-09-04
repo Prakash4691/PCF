@@ -150,6 +150,32 @@ export class MultipleFileUploader
       "ppt",
       "pptx",
       "txt",
+      "md",
+      "rtf",
+      "csv",
+      "json", // Add JSON support
+      "xml",  // Add XML support
+      "js",   // Add JavaScript support
+      "ts",   // Add TypeScript support
+      "html", // Add HTML support
+      "htm",  // Add HTM support
+      "css",  // Add CSS support
+      "zip",  // Add Archive formats
+      "rar",
+      "7z",
+      "tar",
+      "gz",
+      "mp4",  // Add Video formats
+      "mov",
+      "avi",
+      "wmv",
+      "flv",
+      "webm",
+      "mp3",  // Add Audio formats
+      "wav",
+      "ogg",
+      "flac",
+      "m4a",
     ];
 
     // Detect if new encoded format (every segment decodes cleanly & contains no leftover % except for encoded sequences)
@@ -158,7 +184,8 @@ export class MultipleFileUploader
     if (looksEncoded) {
       for (const seg of rawSegments) {
         try {
-          decoded.push(decodeURIComponent(seg));
+          const decodedName = decodeURIComponent(seg);
+          decoded.push(decodedName);
         } catch {
           decoded.push(seg); // fallback
         }
@@ -168,7 +195,8 @@ export class MultipleFileUploader
       let accumulator: string[] = [];
       const flush = () => {
         if (accumulator.length) {
-          decoded.push(accumulator.join(", "));
+          const filename = accumulator.join(", ");
+          decoded.push(filename);
           accumulator = [];
         }
       };
@@ -183,7 +211,36 @@ export class MultipleFileUploader
       flush();
     }
 
-    this.existingFileNames = decoded.filter((n) => n.length > 0);
+    // Filter and validate filenames - split any that look like multiple concatenated filenames
+    const validatedFilenames: string[] = [];
+    let splitCount = 0;
+    
+    decoded.filter((n) => n.length > 0).forEach(filename => {
+      // Check if filename contains comma and looks like concatenated filenames (multiple extensions)
+      if (filename.includes(',')) {
+        const parts = filename.split(',').map(p => p.trim());
+        const hasMultipleValidExtensions = parts.filter(part => {
+          const ext = part.split('.').pop()?.toLowerCase() || '';
+          return knownExt.includes(ext);
+        }).length > 1;
+        
+        if (hasMultipleValidExtensions) {
+          console.log(`Split concatenated filename: ${filename} -> ${parts.length} files`);
+          validatedFilenames.push(...parts);
+          splitCount++;
+        } else {
+          // Keep as single filename (comma might be part of actual filename)
+          validatedFilenames.push(filename);
+        }
+      } else {
+        validatedFilenames.push(filename);
+      }
+    });
+    
+    this.existingFileNames = validatedFilenames;
+    if (splitCount > 0) {
+      console.log(`Processed ${decoded.length} raw filenames, split ${splitCount} corrupted entries, result: ${this.existingFileNames.length} files`);
+    }
     this.createDummyFiles();
   }
 
@@ -219,6 +276,8 @@ export class MultipleFileUploader
           notesId: existingFile?.notesId || notesId,
           uploadProgress: 100,
           uploadStatus: "completed" as const,
+          source: "fileupload" as const,
+          guid: undefined, // Will be set when notesId is resolved
         };
       }
     );
@@ -241,6 +300,7 @@ export class MultipleFileUploader
         if (id) {
           f.file.notesId = id; // augment File so React component can access
           f.notesId = id; // cache resolved
+          f.guid = id; // set guid for deduplication
           this.notifyOutputChanged();
         }
       } catch (e) {
@@ -339,6 +399,8 @@ export class MultipleFileUploader
           isDragAndDrop: isDragAndDrop,
           uploadProgress: 0,
           uploadStatus: "pending" as const,
+          source: "fileupload" as const,
+          guid: undefined, // Will be set after upload
         }));
         this.selectedFiles = [...this.selectedFiles, ...newFiles];
         this.updateFileDataValue();
@@ -516,6 +578,7 @@ export class MultipleFileUploader
 
           fileWithContent.notesId = notesId;
           fileWithContent.file.notesId = notesId; // attach for preview
+          fileWithContent.guid = notesId; // set guid for deduplication
           filesWithNotesId.push(fileWithContent);
           completedFiles++;
         } catch (fileError) {

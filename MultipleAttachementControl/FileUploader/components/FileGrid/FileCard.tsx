@@ -22,15 +22,46 @@ export const FileCard: React.FC<FileCardProps> = ({
   onDownload,
   showActions = true,
 }) => {
-  const { file, icon, fileType, sizeText, isExistingFile } = fileInfo;
+  const { file, icon, fileType, sizeText, isExistingFile, source, subject, noteText, createdOn } = fileInfo;
+  
+  // Utility function to strip HTML tags from text
+  const stripHtmlTags = (htmlString?: string): string => {
+    if (!htmlString) return '';
+    return htmlString.replace(/<[^>]*>/g, '').trim();
+  };
+  
+  // Create enhanced tooltip content based on source and available metadata
+  const getTooltipContent = () => {
+    const displayTitle = subject || file.name;
+    const cleanDescription = stripHtmlTags(noteText);
+    const description = cleanDescription ? `Description: ${cleanDescription}` : '';
+    const sourceInfo = source === 'timeline' ? 'Source: Timeline Notes' : 'Source: File Upload Control';
+    const dateInfo = createdOn ? `Created: ${createdOn.toLocaleDateString()}` : '';
+    
+    const tooltipParts = [displayTitle];
+    if (description) tooltipParts.push(description);
+    tooltipParts.push(sourceInfo);
+    if (dateInfo) tooltipParts.push(dateInfo);
+    
+    return tooltipParts.join('\n');
+  };
 
   return (
-    <div className={`file-card ${isExistingFile ? "existing-file" : ""}`}>
+    <div className={`file-card ${isExistingFile ? "existing-file" : ""} ${source ? `source-${source}` : ""}`}>
       <div className="file-icon">
         <Icon iconName={icon} style={{ fontSize: "32px" }} />
+        {/* Source indicator badge */}
+        {source && (
+          <div className={`source-badge source-${source}`}>
+            <Icon 
+              iconName={source === 'timeline' ? 'Timeline' : 'Upload'} 
+              style={{ fontSize: '10px' }}
+            />
+          </div>
+        )}
       </div>
       <div className="file-details">
-        <TooltipHost content={file.name}>
+        <TooltipHost content={getTooltipContent()}>
           <Text
             variant="medium"
             className="file-name"
@@ -43,7 +74,7 @@ export const FileCard: React.FC<FileCardProps> = ({
               },
             }}
           >
-            {file.name}
+            {subject || file.name}
           </Text>
         </TooltipHost>
         <div className="file-meta">
@@ -69,14 +100,20 @@ export const FileCard: React.FC<FileCardProps> = ({
             }}
           >
             {isExistingFile && (
-              <TooltipHost content="This file exists as a notes record">
+              <TooltipHost content={
+                source === 'timeline' 
+                  ? "This file is from timeline notes" 
+                  : "This file is from file upload"
+              }>
                 <span className="existing-file-indicator">
                   <Icon
-                    iconName="InfoSolid"
+                    iconName={source === 'timeline' ? "Timeline" : "InfoSolid"}
                     style={{
                       fontSize: "10px",
                       marginRight: "4px",
-                      color: "var(--colorBrandForeground1, #0078d4)",
+                      color: source === 'timeline' 
+                        ? "var(--colorPalettePurpleForeground1, #8764b8)" 
+                        : "var(--colorBrandForeground1, #0078d4)",
                     }}
                   />
                   {sizeText}
