@@ -248,6 +248,32 @@ export const FileUploaderComponent: React.FC<FileUploaderComponentProps> = (
     setMergedFiles(merged);
   }, [selectedFiles, timelineFiles, mergeFiles]);
 
+  // Auto-refresh: refetch timeline on page focus/visibility and gentle polling to pick up new notes
+  React.useEffect(() => {
+    if (!parentRecordId) return;
+
+    const handleFocus = () => {
+      // Small delay to avoid racing with server write
+      setTimeout(() => fetchTimelineFiles(), 200);
+    };
+
+    window.addEventListener("focus", handleFocus);
+    document.addEventListener("visibilitychange", handleFocus);
+
+    // Gentle polling every 10s while tab is visible
+    const intervalId = window.setInterval(() => {
+      if (!document.hidden) {
+        fetchTimelineFiles();
+      }
+    }, 10000);
+
+    return () => {
+      window.removeEventListener("focus", handleFocus);
+      document.removeEventListener("visibilitychange", handleFocus);
+      window.clearInterval(intervalId);
+    };
+  }, [parentRecordId, fetchTimelineFiles]);
+
   // Create metadata map for enhanced file display
   const fileMetadata = React.useMemo(() => {
     const metadataMap = new Map<string, FileWithContent>();
