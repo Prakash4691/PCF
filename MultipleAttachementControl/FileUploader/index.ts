@@ -29,6 +29,7 @@ export class MultipleFileUploader
   private showDialog: boolean;
   private dataverseService: DataverseNotesOperations;
   private uploadProgress: FileUploadProgress | null = null;
+  private timelineRefreshToken = 0;
   //private triggerSaveRefresh = "";
 
   /**
@@ -90,7 +91,6 @@ export class MultipleFileUploader
     ) {
       this.resolveExistingNotesIds();
     }
-
     return React.createElement(FileUploaderComponent, {
       selectedFiles: this.selectedFiles.map(
         (fileWithContent) => fileWithContent.file
@@ -116,6 +116,7 @@ export class MultipleFileUploader
       uploadProgress: this.uploadProgress,
       allocatedWidth: context.mode?.allocatedWidth,
       allocatedHeight: context.mode?.allocatedHeight,
+      timelineRefreshToken: this.timelineRefreshToken,
     });
   }
 
@@ -154,24 +155,24 @@ export class MultipleFileUploader
       "rtf",
       "csv",
       "json", // Add JSON support
-      "xml",  // Add XML support
-      "js",   // Add JavaScript support
-      "ts",   // Add TypeScript support
+      "xml", // Add XML support
+      "js", // Add JavaScript support
+      "ts", // Add TypeScript support
       "html", // Add HTML support
-      "htm",  // Add HTM support
-      "css",  // Add CSS support
-      "zip",  // Add Archive formats
+      "htm", // Add HTM support
+      "css", // Add CSS support
+      "zip", // Add Archive formats
       "rar",
       "7z",
       "tar",
       "gz",
-      "mp4",  // Add Video formats
+      "mp4", // Add Video formats
       "mov",
       "avi",
       "wmv",
       "flv",
       "webm",
-      "mp3",  // Add Audio formats
+      "mp3", // Add Audio formats
       "wav",
       "ogg",
       "flac",
@@ -214,32 +215,39 @@ export class MultipleFileUploader
     // Filter and validate filenames - split any that look like multiple concatenated filenames
     const validatedFilenames: string[] = [];
     let splitCount = 0;
-    
-    decoded.filter((n) => n.length > 0).forEach(filename => {
-      // Check if filename contains comma and looks like concatenated filenames (multiple extensions)
-      if (filename.includes(',')) {
-        const parts = filename.split(',').map(p => p.trim());
-        const hasMultipleValidExtensions = parts.filter(part => {
-          const ext = part.split('.').pop()?.toLowerCase() || '';
-          return knownExt.includes(ext);
-        }).length > 1;
-        
-        if (hasMultipleValidExtensions) {
-          console.log(`Split concatenated filename: ${filename} -> ${parts.length} files`);
-          validatedFilenames.push(...parts);
-          splitCount++;
+
+    decoded
+      .filter((n) => n.length > 0)
+      .forEach((filename) => {
+        // Check if filename contains comma and looks like concatenated filenames (multiple extensions)
+        if (filename.includes(",")) {
+          const parts = filename.split(",").map((p) => p.trim());
+          const hasMultipleValidExtensions =
+            parts.filter((part) => {
+              const ext = part.split(".").pop()?.toLowerCase() || "";
+              return knownExt.includes(ext);
+            }).length > 1;
+
+          if (hasMultipleValidExtensions) {
+            console.log(
+              `Split concatenated filename: ${filename} -> ${parts.length} files`
+            );
+            validatedFilenames.push(...parts);
+            splitCount++;
+          } else {
+            // Keep as single filename (comma might be part of actual filename)
+            validatedFilenames.push(filename);
+          }
         } else {
-          // Keep as single filename (comma might be part of actual filename)
           validatedFilenames.push(filename);
         }
-      } else {
-        validatedFilenames.push(filename);
-      }
-    });
-    
+      });
+
     this.existingFileNames = validatedFilenames;
     if (splitCount > 0) {
-      console.log(`Processed ${decoded.length} raw filenames, split ${splitCount} corrupted entries, result: ${this.existingFileNames.length} files`);
+      console.log(
+        `Processed ${decoded.length} raw filenames, split ${splitCount} corrupted entries, result: ${this.existingFileNames.length} files`
+      );
     }
     this.createDummyFiles();
   }
@@ -277,8 +285,8 @@ export class MultipleFileUploader
           uploadProgress: 100,
           uploadStatus: "completed" as const,
           source: "fileupload" as const,
-          guid: undefined, // Will be set when notesId is resolved
-        };
+          guid: undefined as unknown as string | undefined, // Will be set when notesId is resolved
+        } as FileWithContent;
       }
     );
 
@@ -310,6 +318,8 @@ export class MultipleFileUploader
   }
 
   private updateFileDataValue(): void {
+    // Signal timeline to refresh so timeline-only view stays consistent
+    this.timelineRefreshToken++;
     // Store as comma-separated list of URI-encoded names to avoid ambiguity with commas inside filenames
     this.fileDataValue = this.selectedFiles
       .map((f) => encodeURIComponent(f.file.name))
@@ -393,15 +403,18 @@ export class MultipleFileUploader
       }
 
       if (nonDuplicateFiles.length > 0) {
-        const newFiles = nonDuplicateFiles.map((file) => ({
-          file,
-          isExisting: false,
-          isDragAndDrop: isDragAndDrop,
-          uploadProgress: 0,
-          uploadStatus: "pending" as const,
-          source: "fileupload" as const,
-          guid: undefined, // Will be set after upload
-        }));
+        const newFiles = nonDuplicateFiles.map(
+          (file) =>
+            ({
+              file,
+              isExisting: false,
+              isDragAndDrop: isDragAndDrop,
+              uploadProgress: 0,
+              uploadStatus: "pending" as const,
+              source: "fileupload" as const,
+              guid: undefined as unknown as string | undefined, // Will be set after upload
+            } as FileWithContent)
+        );
         this.selectedFiles = [...this.selectedFiles, ...newFiles];
         this.updateFileDataValue();
         this.filesUploaded = false;
@@ -479,6 +492,9 @@ export class MultipleFileUploader
           text: `Successfully deleted notes for ${fileName}`,
           type: MessageBarType.success,
         };
+        // Signal timeline to refresh so timeline-only view stays consistent
+        this.timelineRefreshToken++;
+        this.notifyOutputChanged();
       } catch (error) {
         console.error("Error deleting file:", error);
         this.isUploading = false;
