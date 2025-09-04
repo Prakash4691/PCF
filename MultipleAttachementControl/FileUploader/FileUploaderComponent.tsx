@@ -335,7 +335,11 @@ export const FileUploaderComponent: React.FC<FileUploaderComponentProps> = (
   return (
     <div
       className={`file-uploader-container ${isDragging ? "drag-active" : ""} ${
-        allocatedWidth && allocatedWidth < 450
+        // Treat phone form factor as extra-small to enforce single-column stacking
+        (context.client &&
+          context.client.getFormFactor &&
+          context.client.getFormFactor() === 3) ||
+        (allocatedWidth && allocatedWidth < 450)
           ? "is-xs"
           : allocatedWidth && allocatedWidth < 700
           ? "is-sm"
