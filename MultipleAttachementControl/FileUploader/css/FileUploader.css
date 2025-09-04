@@ -8,6 +8,9 @@
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
   background-color: var(--colorNeutralBackground1, #ffffff);
   box-sizing: border-box;
+  /* Ensure the control fills the host width without causing horizontal scroll */
+  width: 100%;
+  max-width: 100%;
   /* Allow vertical scroll only; prevent horizontal scroll */
   overflow-y: auto;
   overflow-x: hidden;
@@ -118,44 +121,67 @@
   outline-offset: 2px;
 }
 
+/* Grid layout for files – fluid and stackable */
 .file-grid {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-auto-rows: auto;
+  grid-auto-flow: row dense; /* pack items to avoid wide gaps */
   gap: var(--spacingHorizontalM, 12px);
   margin-top: var(--spacingVerticalM, 12px);
   width: 100%;
   padding-bottom: var(--spacingVerticalS, 8px);
-  /* Prevent accidental horizontal overflow gaps */
-  align-items: stretch;
-  .file-card-actions {
-    display: flex;
-    gap: 4px;
-    margin-left: auto;
-  }
-  .file-card-actions .action-button {
-    background: transparent;
-    border: none;
-    width: 24px;
-    height: 24px;
-    min-width: 24px;
-  }
-  .file-card-actions .action-button:hover {
-    background: var(--colorNeutralBackground2, #f5f5f5);
-  }
+  /* Default: auto-fill columns with a sensible min card size */
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+}
+
+/* Action area styling (flattened selectors — no nesting) */
+.file-card-actions {
+  display: flex;
+  gap: 4px;
+  margin-left: auto;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-self: end;
+  grid-column: 3;
+}
+.file-card-actions .action-button {
+  background: transparent;
+  border: none;
+  width: 24px;
+  height: 24px;
+  min-width: 24px;
+}
+.file-card-actions .action-button:hover {
+  background: var(--colorNeutralBackground2, #f5f5f5);
 }
 
 .file-card {
-  display: flex;
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr) auto;
+  column-gap: var(--spacingHorizontalM, 12px);
   align-items: center;
   padding: var(--spacingHorizontalM, 12px);
   border: 1px solid var(--colorNeutralStroke2, #d1d1d1);
   border-radius: var(--borderRadiusMedium, 4px);
   background-color: var(--colorNeutralBackground1, #ffffff);
   position: relative;
+  /* Reflow card to two rows: icon + details on first row, actions on second */
+  .file-card {
+    grid-template-columns: 40px minmax(0, 1fr);
+    grid-template-rows: auto auto;
+  }
+  .file-card-actions {
+    grid-column: 1 / -1;
+    justify-self: end;
+    width: 100%;
+    justify-content: flex-end;
+    margin-left: 0;
+    margin-top: 4px;
+  }
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-  min-width: 220px;
-  max-width: 340px;
-  flex: 1 1 clamp(160px, 45%, 260px); /* allow wrapping & shrinking, narrower on phones */
+  /* Let the grid cell govern the width; avoid fixed mins that cause overflow */
+  width: 100%;
+  min-width: 0;
   box-sizing: border-box;
   box-shadow: var(--shadow2, 0 1px 2px rgba(0, 0, 0, 0.04));
 }
@@ -198,11 +224,15 @@
   min-width: 40px;
   font-size: 32px;
 }
+.file-icon {
+  grid-column: 1;
+}
 
 .file-details {
-  flex-grow: 1;
+  flex: 1 1 auto;
+  min-width: 0; /* allows text truncation and prevents pushing actions out */
   overflow: hidden;
-  max-width: calc(100% - 85px);
+  grid-column: 2;
 }
 
 .file-name {
@@ -220,8 +250,9 @@
   display: flex;
   font-size: var(--fontSizeBase200, 12px);
   color: var(--colorNeutralForeground2, #616161);
-  gap: var(--spacingHorizontalM, 12px);
+  gap: var(--spacingHorizontalS, 8px);
   align-items: center;
+  flex-wrap: wrap; /* prevent crushing long labels on small widths */
 }
 
 .file-size {
@@ -282,22 +313,22 @@
 }
 
 /* Progress Indicator styling */
-.ms-ProgressIndicator {
+.file-uploader-container .ms-ProgressIndicator {
   margin: var(--spacingVerticalS, 8px) 0;
 }
 
-.ms-ProgressIndicator-itemName {
+.file-uploader-container .ms-ProgressIndicator-itemName {
   font-weight: var(--fontWeightSemibold, 600);
   color: var(--colorNeutralForeground1, #323130);
 }
 
-.ms-ProgressIndicator-itemDescription {
+.file-uploader-container .ms-ProgressIndicator-itemDescription {
   font-size: var(--fontSizeBase200, 12px);
   color: var(--colorNeutralForeground2, #616161);
 }
 
 /* Message Bar styling */
-.ms-MessageBar {
+.file-uploader-container .ms-MessageBar {
   margin: var(--spacingVerticalS, 8px) 0;
   border-radius: var(--borderRadiusMedium, 4px);
 }
@@ -393,7 +424,7 @@
 }
 
 /* Enhanced message bar styling */
-.ms-MessageBar {
+.file-uploader-container .ms-MessageBar {
   border-radius: var(--borderRadiusMedium, 4px);
   box-shadow: var(--shadow2, 0 1px 2px rgba(0, 0, 0, 0.04));
 }
@@ -529,19 +560,37 @@
 }
 
 /* Responsive design for smaller screens */
-@media (max-width: 900px) {
-  .file-card {
-    flex: 1 1 clamp(180px, 48%, 260px);
-  }
+/* Width-based stacking tuned to the runtime container classes */
+/* Phones: force single column */
+.file-uploader-container.is-xs .file-grid {
+  grid-template-columns: 1fr;
+}
+
+/* Small tablets/large phones: two columns */
+.file-uploader-container.is-sm .file-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+/* Medium screens: auto-fit a few columns with sensible min size */
+.file-uploader-container.is-md .file-grid {
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+/* Large screens: allow more columns */
+.file-uploader-container.is-lg .file-grid {
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
 }
 
 @media (max-width: 600px) {
   .file-grid {
     gap: var(--spacingHorizontalS, 8px);
   }
-  .file-card {
-    flex: 1 1 clamp(150px, 100%, 220px);
-    min-width: 160px;
+  .file-name {
+    white-space: normal;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    -webkit-box-orient: vertical;
   }
   .file-card .file-card-actions .action-button,
   .file-card .remove-button {
@@ -553,11 +602,7 @@
 
 @media (max-width: 420px) {
   .file-grid {
-    flex-direction: column;
-  }
-  .file-card {
-    min-width: 100%;
-    flex: 1 1 100%;
+    gap: var(--spacingHorizontalS, 8px);
   }
 }
 
