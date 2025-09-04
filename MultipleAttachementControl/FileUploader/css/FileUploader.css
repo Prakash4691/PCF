@@ -141,6 +141,8 @@
   margin-left: auto;
   flex: 0 0 auto;
   align-items: center;
+  justify-self: end;
+  grid-column: 3;
 }
 .file-card-actions .action-button {
   background: transparent;
@@ -154,13 +156,28 @@
 }
 
 .file-card {
-  display: flex;
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr) auto;
+  column-gap: var(--spacingHorizontalM, 12px);
   align-items: center;
   padding: var(--spacingHorizontalM, 12px);
   border: 1px solid var(--colorNeutralStroke2, #d1d1d1);
   border-radius: var(--borderRadiusMedium, 4px);
   background-color: var(--colorNeutralBackground1, #ffffff);
   position: relative;
+  /* Reflow card to two rows: icon + details on first row, actions on second */
+  .file-card {
+    grid-template-columns: 40px minmax(0, 1fr);
+    grid-template-rows: auto auto;
+  }
+  .file-card-actions {
+    grid-column: 1 / -1;
+    justify-self: end;
+    width: 100%;
+    justify-content: flex-end;
+    margin-left: 0;
+    margin-top: 4px;
+  }
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
   /* Let the grid cell govern the width; avoid fixed mins that cause overflow */
   width: 100%;
@@ -207,11 +224,15 @@
   min-width: 40px;
   font-size: 32px;
 }
+.file-icon {
+  grid-column: 1;
+}
 
 .file-details {
   flex: 1 1 auto;
   min-width: 0; /* allows text truncation and prevents pushing actions out */
   overflow: hidden;
+  grid-column: 2;
 }
 
 .file-name {
