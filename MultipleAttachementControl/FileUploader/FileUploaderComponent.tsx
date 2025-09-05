@@ -24,6 +24,7 @@ import {
 } from "./utils/filePreviewUtils";
 import { DataverseNotesOperations } from "./services/DataverseNotesOperations";
 import { inferMimeTypeFromFileName } from "./utils/mimeTypes";
+import { getSafeFileName } from "./utils/fileHelpers";
 
 // Initialize the FluentUI icons
 initializeIcons();
@@ -84,7 +85,7 @@ export const FileUploaderComponent: React.FC<FileUploaderComponentProps> = (
   const [timelineFiles, setTimelineFiles] = React.useState<FileWithContent[]>(
     []
   );
-  const [isLoadingTimeline, setIsLoadingTimeline] = React.useState(false);
+  const [isLoadingTimeline, setIsLoadingTimeline] = React.useState(true);
   const [mergedFiles, setMergedFiles] = React.useState<File[]>([]);
 
   if (!notesServiceRef.current) {
@@ -129,6 +130,9 @@ export const FileUploaderComponent: React.FC<FileUploaderComponentProps> = (
         const file = new File([new ArrayBuffer(1)], note.filename, {
           type: mimeType,
         });
+        // Ensure alternate property for environments where name may be blank / inaccessible
+        // Augment file object with alternative name property for environments where File.name may be empty
+        (file as unknown as { fileName?: string }).fileName = note.filename;
 
         // Attach notesId to file object for preview/download
         (file as FileWithNoteId).notesId = note.annotationid;
@@ -151,7 +155,18 @@ export const FileUploaderComponent: React.FC<FileUploaderComponentProps> = (
         timelineFileObjects.push(timelineFile);
       }
 
-      setTimelineFiles(timelineFileObjects);
+      // Shallow compare by safe names and guids to avoid unnecessary re-renders
+      const sameLength = timelineFiles.length === timelineFileObjects.length;
+      const sameItems =
+        sameLength &&
+        timelineFiles.every((f, i) => {
+          const a = getSafeFileName(f.file);
+          const b = getSafeFileName(timelineFileObjects[i].file);
+          return a === b && f.guid === timelineFileObjects[i].guid;
+        });
+      if (!sameItems) {
+        setTimelineFiles(timelineFileObjects);
+      }
     } catch (error) {
       console.error("Error fetching timeline files:", error);
       setTimelineFiles([]); // Set empty array on error
@@ -176,12 +191,14 @@ export const FileUploaderComponent: React.FC<FileUploaderComponentProps> = (
       const timelineFilesByGuid = new Map<string, FileWithContent>();
       const timelineFilesByName = new Map<string, FileWithContent>();
 
+      const norm = (f: File) => getSafeFileName(f).trim().toLowerCase();
+
       // Index timeline files by both GUID and name for efficient lookup
       timelineFiles.forEach((timelineFile) => {
         if (timelineFile.guid) {
           timelineFilesByGuid.set(timelineFile.guid, timelineFile);
         }
-        timelineFilesByName.set(timelineFile.file.name, timelineFile);
+        timelineFilesByName.set(norm(timelineFile.file), timelineFile);
       });
 
       // Process PCF files first - these are authoritative (from actual control fileData)
@@ -191,7 +208,7 @@ export const FileUploaderComponent: React.FC<FileUploaderComponentProps> = (
 
         // Always add PCF file to merged list - it's authoritative
         merged.push(file);
-        processedNames.add(file.name);
+        processedNames.add(norm(file));
 
         if (pcfGuid) {
           processedGuids.add(pcfGuid);
@@ -203,7 +220,7 @@ export const FileUploaderComponent: React.FC<FileUploaderComponentProps> = (
         const alreadyProcessedByGuid =
           timelineFile.guid && processedGuids.has(timelineFile.guid);
         const alreadyProcessedByName = processedNames.has(
-          timelineFile.file.name
+          norm(timelineFile.file)
         );
 
         // Only add timeline files that are NOT already represented by PCF files
@@ -212,7 +229,7 @@ export const FileUploaderComponent: React.FC<FileUploaderComponentProps> = (
           if (timelineFile.guid) {
             processedGuids.add(timelineFile.guid);
           }
-          processedNames.add(timelineFile.file.name);
+          processedNames.add(norm(timelineFile.file));
         }
       });
 
@@ -244,35 +261,30 @@ export const FileUploaderComponent: React.FC<FileUploaderComponentProps> = (
 
   // Effect to merge PCF and timeline files
   React.useEffect(() => {
+    const timeout = window.setTimeout(() => {
+      // Safety: if timeline hasn't loaded in 600ms, proceed to merge to show PCF files
+      setIsLoadingTimeline(false);
+    }, 600);
     const merged = mergeFiles(selectedFiles, timelineFiles);
-    setMergedFiles(merged);
+    // Avoid unnecessary state updates to prevent flicker
+    const equal =
+      merged.length === mergedFiles.length &&
+      merged.every((mf, i) => {
+        const a = getSafeFileName(mf);
+        const b = getSafeFileName(mergedFiles[i]);
+        return a === b && mf.size === mergedFiles[i].size;
+      });
+    if (!equal) {
+      setMergedFiles(merged);
+    }
+    // Clear loading state once we have timeline files resolved at least once
+    if (timelineFiles) {
+      setIsLoadingTimeline(false);
+    }
+    return () => window.clearTimeout(timeout);
   }, [selectedFiles, timelineFiles, mergeFiles]);
 
-  // Auto-refresh: refetch timeline on page focus/visibility and gentle polling to pick up new notes
-  React.useEffect(() => {
-    if (!parentRecordId) return;
-
-    const handleFocus = () => {
-      // Small delay to avoid racing with server write
-      setTimeout(() => fetchTimelineFiles(), 200);
-    };
-
-    window.addEventListener("focus", handleFocus);
-    document.addEventListener("visibilitychange", handleFocus);
-
-    // Gentle polling every 10s while tab is visible
-    const intervalId = window.setInterval(() => {
-      if (!document.hidden) {
-        fetchTimelineFiles();
-      }
-    }, 10000);
-
-    return () => {
-      window.removeEventListener("focus", handleFocus);
-      document.removeEventListener("visibilitychange", handleFocus);
-      window.clearInterval(intervalId);
-    };
-  }, [parentRecordId, fetchTimelineFiles]);
+  // Removed periodic polling and focus-based refresh to prevent flicker; rely on explicit refresh tokens
 
   // Create metadata map for enhanced file display
   const fileMetadata = React.useMemo(() => {
@@ -282,35 +294,67 @@ export const FileUploaderComponent: React.FC<FileUploaderComponentProps> = (
     let pcfCount = 0,
       timelineCount = 0;
 
-    mergedFiles.forEach((file) => {
-      const pcfFile = selectedFiles.find((sf) => sf.name === file.name);
+    mergedFiles.forEach((file, idx) => {
+      const fileName = getSafeFileName(file);
+      const pcfFile = selectedFiles.find(
+        (sf) => getSafeFileName(sf) === fileName
+      );
       const timelineFile = timelineFiles.find(
-        (tf) => tf.file.name === file.name
+        (tf) => getSafeFileName(tf.file) === fileName
       );
 
       // Priority 1: PCF file exists - this means user uploaded via control, use fileupload source
       if (pcfFile) {
         pcfCount++;
         const pcfWithId = pcfFile as File & { notesId?: string };
-        metadataMap.set(file.name, {
+        // Merge timeline metadata when available (subject, note, dates, guid) so UI shows details
+        const key = metadataMap.has(fileName)
+          ? `${fileName}__${idx}`
+          : fileName;
+        metadataMap.set(key, {
           file,
           isExisting: file.size <= 1,
           source: "fileupload",
           uploadStatus: file.size <= 1 ? "completed" : "pending",
           uploadProgress: file.size <= 1 ? 100 : 0,
-          guid: pcfWithId.notesId, // Preserve notesId if available
+          guid: pcfWithId.notesId || timelineFile?.guid,
+          subject: timelineFile?.subject,
+          noteText: timelineFile?.noteText,
+          createdOn: timelineFile?.createdOn,
+          modifiedOn: timelineFile?.modifiedOn,
         });
       }
       // Priority 2: Timeline-only file (no corresponding PCF file)
       else if (timelineFile) {
         timelineCount++;
-        metadataMap.set(file.name, timelineFile);
+        metadataMap.set(fileName, {
+          ...timelineFile,
+          source: "timeline",
+          isExisting: true,
+          uploadStatus: "completed",
+          uploadProgress: 100,
+        });
       }
     });
 
     console.log(
       `Metadata created: ${pcfCount} PCF files, ${timelineCount} timeline-only files`
     );
+
+    // Debug each entry for mobile investigation
+    metadataMap.forEach((v, k) => {
+      try {
+        console.log("[MFU] metadata", k, {
+          safeName: getSafeFileName(v.file),
+          fileNameProp: (v.file as File).name,
+          source: v.source,
+          guid: v.guid,
+          isExisting: v.isExisting,
+        });
+      } catch {
+        // swallow logging errors (non-fatal)
+      }
+    });
 
     return metadataMap;
   }, [selectedFiles, timelineFiles, mergedFiles]);
@@ -380,6 +424,7 @@ export const FileUploaderComponent: React.FC<FileUploaderComponentProps> = (
 
         const validFiles: File[] = [];
         const invalidFiles: { file: File; reason: string }[] = [];
+        const invalidContents: string[] = [];
 
         for (const fileObj of fileObjs) {
           // Device.pickFile returns base64 WITHOUT data URL prefix (per docs). We must decode to bytes to prevent corruption.
@@ -388,10 +433,11 @@ export const FileUploaderComponent: React.FC<FileUploaderComponentProps> = (
             bytes = base64ToUint8Array(fileObj.fileContent);
           } catch (e) {
             console.warn(
-              "Failed to decode base64 from pickFile, falling back to raw string",
+              "Failed to decode base64 from pickFile; skipping file",
               e
             );
-            bytes = new TextEncoder().encode(fileObj.fileContent);
+            invalidContents.push(`${fileObj.fileName}: invalid file content`);
+            continue; // Do not fallback to avoid mutation/corruption
           }
           const mime =
             fileObj.mimeType || getMimeTypeFromExtension(fileObj.fileName);
@@ -401,7 +447,15 @@ export const FileUploaderComponent: React.FC<FileUploaderComponentProps> = (
             type: mime,
           });
 
-          const fileExtension = file.name.split(".").pop()?.toLowerCase() || "";
+          const getNameVal = (
+            f: { name?: unknown; fileName?: unknown; Name?: unknown } & File
+          ) =>
+            (f.name as unknown) ??
+            (f.fileName as unknown) ??
+            (f.Name as unknown);
+          const rawName = getNameVal(file);
+          const safeName = typeof rawName === "string" ? rawName : file.name;
+          const fileExtension = safeName.split(".").pop()?.toLowerCase() || "";
 
           if (blockedExtensions.includes(fileExtension)) {
             invalidFiles.push({
@@ -418,10 +472,13 @@ export const FileUploaderComponent: React.FC<FileUploaderComponentProps> = (
           onFilesSelected(validFiles, false);
         }
 
-        if (invalidFiles.length > 0) {
-          const errorMessages = invalidFiles.map(
-            (invalid) => `${invalid.file.name}: ${invalid.reason}`
-          );
+        if (invalidFiles.length > 0 || invalidContents.length > 0) {
+          const errorMessages = [
+            ...invalidFiles.map(
+              (invalid) => `${invalid.file.name}: ${invalid.reason}`
+            ),
+            ...invalidContents,
+          ];
 
           setDialogContent({
             title: "Blocked File Type",
@@ -453,7 +510,9 @@ export const FileUploaderComponent: React.FC<FileUploaderComponentProps> = (
       await svc.deleteNote(metadata.guid);
 
       // Remove from timeline files state
-      setTimelineFiles((prev) => prev.filter((f) => f.file.name !== fileName));
+      setTimelineFiles((prev) =>
+        prev.filter((f) => getSafeFileName(f.file) !== fileName)
+      );
 
       setShowDeleteDialog(false);
     } catch (error) {
@@ -463,7 +522,8 @@ export const FileUploaderComponent: React.FC<FileUploaderComponentProps> = (
 
   const handleFileRemove = (index: number) => {
     const file = mergedFiles[index];
-    const metadata = fileMetadata.get(file.name);
+    const safeName = getSafeFileName(file);
+    const metadata = fileMetadata.get(safeName);
 
     // Determine if this is a timeline file or PCF file
     if (metadata?.source === "timeline") {
@@ -475,11 +535,11 @@ export const FileUploaderComponent: React.FC<FileUploaderComponentProps> = (
     } else {
       // PCF file - find the corresponding index in selectedFiles and delegate to parent
       const selectedFileIndex = selectedFiles.findIndex(
-        (f) => f.name === file.name
+        (f) => getSafeFileName(f) === safeName
       );
       if (selectedFileIndex !== -1) {
         if (file.size <= 1) {
-          setFileToDelete({ index: selectedFileIndex, name: file.name });
+          setFileToDelete({ index: selectedFileIndex, name: safeName });
           setShowDeleteDialog(true);
         } else {
           onFileRemoved(selectedFileIndex);
@@ -611,7 +671,12 @@ export const FileUploaderComponent: React.FC<FileUploaderComponentProps> = (
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
     >
-      {mergedFiles.length === 0 && !isLoadingTimeline ? (
+      {isLoadingTimeline ? (
+        <div className="loading-timeline">
+          <Icon iconName="Loading" className="loading-icon" />
+          <div>Loading timeline files...</div>
+        </div>
+      ) : mergedFiles.length === 0 ? (
         <div className="file-uploader-content" onClick={handlePickFilesClick}>
           <Icon iconName="Upload" className="upload-icon" />
           <div className="file-uploader-text">
@@ -630,11 +695,6 @@ export const FileUploaderComponent: React.FC<FileUploaderComponentProps> = (
             aria-label="File upload input"
             title="Choose files to upload"
           />
-        </div>
-      ) : isLoadingTimeline && mergedFiles.length === 0 ? (
-        <div className="loading-timeline">
-          <Icon iconName="Loading" className="loading-icon" />
-          <div>Loading timeline files...</div>
         </div>
       ) : (
         <>
