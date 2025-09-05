@@ -9,12 +9,15 @@ interface FileHeaderProps {
   onAddFiles: () => void;
   /** Mode determines which label to show: 'selected' (new pending files) or 'uploaded' (all existing/completed) */
   mode?: "selected" | "uploaded";
+  /** Optional loading hint for first load/refresh */
+  isLoading?: boolean;
 }
 
 export const FileHeader: React.FC<FileHeaderProps> = ({
   fileCount,
   onAddFiles,
   mode = "selected",
+  isLoading = false,
 }) => {
   return (
     <>
@@ -29,7 +32,7 @@ export const FileHeader: React.FC<FileHeaderProps> = ({
           }}
         >
           {mode === "uploaded" ? "Uploaded Files" : "Selected Files"} (
-          {fileCount})
+          {fileCount}){isLoading ? " – syncing…" : ""}
         </Text>
         <DefaultButton
           className="add-files-button"

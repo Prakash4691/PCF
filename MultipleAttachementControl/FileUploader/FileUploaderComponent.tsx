@@ -12,6 +12,7 @@ import { FileHeader } from "./components/FileHeader";
 import { UploadSection } from "./components/UploadSection";
 import { UploadProgress } from "./components/UploadProgress";
 import { getMimeTypeFromExtension } from "./utils/mimeTypes";
+import { Spinner, SpinnerSize } from "@fluentui/react/lib/Spinner";
 import { base64ToUint8Array } from "./utils/fileUtils";
 import { PreviewDialog } from "./components/dialogs/PreviewDialog";
 import {
@@ -261,10 +262,6 @@ export const FileUploaderComponent: React.FC<FileUploaderComponentProps> = (
 
   // Effect to merge PCF and timeline files
   React.useEffect(() => {
-    const timeout = window.setTimeout(() => {
-      // Safety: if timeline hasn't loaded in 600ms, proceed to merge to show PCF files
-      setIsLoadingTimeline(false);
-    }, 600);
     const merged = mergeFiles(selectedFiles, timelineFiles);
     // Avoid unnecessary state updates to prevent flicker
     const equal =
@@ -277,11 +274,7 @@ export const FileUploaderComponent: React.FC<FileUploaderComponentProps> = (
     if (!equal) {
       setMergedFiles(merged);
     }
-    // Clear loading state once we have timeline files resolved at least once
-    if (timelineFiles) {
-      setIsLoadingTimeline(false);
-    }
-    return () => window.clearTimeout(timeout);
+    // Do NOT force-clear loading here; rely on fetchTimelineFiles to flip the flag
   }, [selectedFiles, timelineFiles, mergeFiles]);
 
   // Removed periodic polling and focus-based refresh to prevent flicker; rely on explicit refresh tokens
@@ -672,9 +665,9 @@ export const FileUploaderComponent: React.FC<FileUploaderComponentProps> = (
       onDrop={handleDrop}
     >
       {isLoadingTimeline ? (
-        <div className="loading-timeline">
-          <Icon iconName="Loading" className="loading-icon" />
-          <div>Loading timeline files...</div>
+        <div className="loading-timeline" role="status" aria-live="polite">
+          <Spinner size={SpinnerSize.small} />
+          <div className="loading-timeline-text">Loading files…</div>
         </div>
       ) : mergedFiles.length === 0 ? (
         <div className="file-uploader-content" onClick={handlePickFilesClick}>
@@ -701,6 +694,7 @@ export const FileUploaderComponent: React.FC<FileUploaderComponentProps> = (
           <FileHeader
             fileCount={newFilesCount > 0 ? newFilesCount : mergedFiles.length} // Show total count of all files (PCF + timeline)
             mode={newFilesCount > 0 ? "selected" : "uploaded"}
+            isLoading={isLoadingTimeline}
             onAddFiles={handlePickFilesClick}
           />
           <FileGrid
