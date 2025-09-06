@@ -1,3 +1,5 @@
+import { inferMimeTypeFromFileName } from "./utils/mimeTypes";
+import { getSafeFileName } from "./utils/fileHelpers";
 import { IInputs, IOutputs } from "./generated/ManifestTypes";
 import * as React from "react";
 import { FileUploaderComponent } from "./FileUploaderComponent";
@@ -9,7 +11,10 @@ import {
 } from "./types/interfaces";
 import { DataverseNotesOperations } from "./services/DataverseNotesOperations";
 import { readFileAsDataURL } from "./utils/fileUtils";
-import { inferMimeTypeFromFileName } from "./utils/mimeTypes";
+
+interface AugmentedFile extends File {
+  fileName?: string;
+}
 
 export class MultipleFileUploader
   implements ComponentFramework.ReactControl<IInputs, IOutputs>
@@ -30,6 +35,7 @@ export class MultipleFileUploader
   private dataverseService: DataverseNotesOperations;
   private uploadProgress: FileUploadProgress | null = null;
   private timelineRefreshToken = 0;
+  private isHydrating = true;
   //private triggerSaveRefresh = "";
 
   /**
@@ -42,6 +48,24 @@ export class MultipleFileUploader
   ): void {
     this.notifyOutputChanged = notifyOutputChanged;
     this.context = context;
+    try {
+      // Debug: log current selected file names and statuses to diagnose mobile name duplication
+      // (Will be visible in mobile app webview console if remote debugging enabled)
+      console.log(
+        "[MFU] selectedFiles snapshot",
+        this.selectedFiles.map((f, i) => ({
+          i,
+          name: f.file.name,
+          size: f.file.size,
+          isExisting: f.isExisting,
+          guid: f.guid,
+          notesId: f.notesId,
+          uploadStatus: f.uploadStatus,
+        }))
+      );
+    } catch (e) {
+      // ignore logging failure
+    }
     this.dataverseService = new DataverseNotesOperations(context);
     // IMPORTANT: assign parentRecordId BEFORE parsing existing files so notesId lookups work
     this.parentRecordId = context.parameters.parentRecordId.raw;
@@ -65,6 +89,10 @@ export class MultipleFileUploader
       ? parseInt(context.parameters.maxFileSizeForAttachment.raw) * 1024
       : 0;
     this.showDialog = false;
+    // End hydration after first view paint; do not emit outputs during hydration
+    setTimeout(() => {
+      this.isHydrating = false;
+    }, 0);
   }
 
   /**
@@ -267,6 +295,10 @@ export class MultipleFileUploader
           type: mimeType,
         });
 
+        // Ensure environments where File.name may be blank (mobile webview/polyfill)
+        // still expose a usable name via an alternate property that getSafeFileName reads.
+        (file as AugmentedFile).fileName = fileName;
+
         let notesId: Promise<string | null> | undefined;
         if (this.parentRecordId) {
           notesId = this.dataverseService.getNotesId(
@@ -291,7 +323,10 @@ export class MultipleFileUploader
     );
 
     this.selectedFiles = dummyFiles;
-    this.updateFileDataValue();
+    // Do not update outputs during initial hydration to avoid dirty state on form open
+    if (!this.isHydrating) {
+      this.updateFileDataValue();
+    }
     // Resolve notes ids asynchronously and attach to File objects
     this.resolveExistingNotesIds();
   }
@@ -309,7 +344,10 @@ export class MultipleFileUploader
           f.file.notesId = id; // augment File so React component can access
           f.notesId = id; // cache resolved
           f.guid = id; // set guid for deduplication
-          this.notifyOutputChanged();
+          // Avoid emitting outputs during hydration; this would mark field dirty on open
+          if (!this.isHydrating) {
+            this.notifyOutputChanged();
+          }
         }
       } catch (e) {
         console.error("Failed resolving notesId for", f.file.name, e);
@@ -322,7 +360,7 @@ export class MultipleFileUploader
     this.timelineRefreshToken++;
     // Store as comma-separated list of URI-encoded names to avoid ambiguity with commas inside filenames
     this.fileDataValue = this.selectedFiles
-      .map((f) => encodeURIComponent(f.file.name))
+      .map((f) => encodeURIComponent(getSafeFileName(f.file)))
       .join(",");
   }
 
@@ -382,18 +420,20 @@ export class MultipleFileUploader
     isDragAndDrop: boolean
   ): Promise<void> => {
     try {
+      interface AugmentedFile extends File {
+        fileName?: string;
+      }
       const existingNames = this.selectedFiles.map((f) =>
-        f.file.name.toLowerCase()
+        getSafeFileName(f.file).toLowerCase()
       );
       const nonDuplicateFiles: File[] = [];
       const duplicateFiles: File[] = [];
-
-      for (const file of files) {
-        if (existingNames.includes(file.name.toLowerCase())) {
-          duplicateFiles.push(file);
-        } else {
-          nonDuplicateFiles.push(file);
-        }
+      for (const raw of files) {
+        const file = raw as AugmentedFile;
+        if (!file.fileName && file.name) file.fileName = file.name;
+        const cmpName = getSafeFileName(file).toLowerCase();
+        if (existingNames.includes(cmpName)) duplicateFiles.push(file);
+        else nonDuplicateFiles.push(file);
       }
 
       if (duplicateFiles.length > 0) {
@@ -556,9 +596,35 @@ export class MultipleFileUploader
 
       let i = 0;
       for (const fileWithContent of filesToUpload) {
-        const originalIndex = this.selectedFiles.findIndex(
-          (f) => f.file.name === fileWithContent.file.name
-        );
+        const originalIndex = this.selectedFiles.findIndex((f) => {
+          const a = f.file as unknown as {
+            name?: unknown;
+            fileName?: unknown;
+            Name?: unknown;
+          };
+          const b = fileWithContent.file as unknown as {
+            name?: unknown;
+            fileName?: unknown;
+            Name?: unknown;
+          };
+          const an =
+            typeof a.name === "string"
+              ? a.name
+              : typeof a.fileName === "string"
+              ? a.fileName
+              : typeof a.Name === "string"
+              ? a.Name
+              : (f.file as File).name;
+          const bn =
+            typeof b.name === "string"
+              ? b.name
+              : typeof b.fileName === "string"
+              ? b.fileName
+              : typeof b.Name === "string"
+              ? b.Name
+              : (fileWithContent.file as File).name;
+          return an === bn;
+        });
 
         try {
           // Update status to uploading
@@ -575,7 +641,10 @@ export class MultipleFileUploader
           // Progress after file processing
           this.updateFileProgress(originalIndex, 50, "uploading");
 
-          const fileExtension = file.name.split(".").pop()?.toLowerCase() || "";
+          const safeName = getSafeFileName(file);
+          const augmented = file as AugmentedFile;
+          if (!augmented.fileName && safeName) augmented.fileName = safeName;
+          const fileExtension = safeName.split(".").pop()?.toLowerCase() || "";
           const mimeType = inferMimeTypeFromFileName(fileExtension);
 
           // Progress before upload
@@ -620,14 +689,41 @@ export class MultipleFileUploader
       }
 
       this.filesUploaded = true;
-      this.selectedFiles = this.selectedFiles.filter(
-        (file) =>
-          file.isExisting ||
-          filesWithNotesId.some((f) => f.file.name === file.file.name)
-      );
+      this.selectedFiles = this.selectedFiles.filter((file) => {
+        if (file.isExisting) return true;
+        const nf = file.file as unknown as {
+          name?: unknown;
+          fileName?: unknown;
+          Name?: unknown;
+        };
+        const nameA =
+          typeof nf.name === "string"
+            ? nf.name
+            : typeof nf.fileName === "string"
+            ? nf.fileName
+            : typeof nf.Name === "string"
+            ? nf.Name
+            : file.file.name;
+        return filesWithNotesId.some((f) => {
+          const of = f.file as unknown as {
+            name?: unknown;
+            fileName?: unknown;
+            Name?: unknown;
+          };
+          const nameB =
+            typeof of.name === "string"
+              ? of.name
+              : typeof of.fileName === "string"
+              ? of.fileName
+              : typeof of.Name === "string"
+              ? of.Name
+              : f.file.name;
+          return nameA === nameB;
+        });
+      });
 
-      const successfullyUploadedFiles = this.selectedFiles.map(
-        (file) => file.file.name
+      const successfullyUploadedFiles = this.selectedFiles.map((file) =>
+        getSafeFileName(file.file)
       );
       this.isUploading = false;
       this.parseExistingFieldValue(successfullyUploadedFiles.join(","));

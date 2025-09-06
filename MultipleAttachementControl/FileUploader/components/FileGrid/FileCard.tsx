@@ -4,6 +4,7 @@ import { Text } from "@fluentui/react/lib/Text";
 import { TooltipHost } from "@fluentui/react/lib/Tooltip";
 import { IconButton } from "@fluentui/react/lib/Button";
 import { FileInfo } from "../../types/interfaces";
+import { getSafeFileName } from "../../utils/fileHelpers";
 
 interface FileCardProps {
   fileInfo: FileInfo;
@@ -22,40 +23,62 @@ export const FileCard: React.FC<FileCardProps> = ({
   onDownload,
   showActions = true,
 }) => {
-  const { file, icon, fileType, sizeText, isExistingFile, source, subject, noteText, createdOn } = fileInfo;
-  
+  const {
+    file,
+    icon,
+    fileType,
+    sizeText,
+    isExistingFile,
+    source,
+    subject,
+    noteText,
+    createdOn,
+  } = fileInfo;
+  const safeName = getSafeFileName(file);
+
   // Utility function to strip HTML tags from text
   const stripHtmlTags = (htmlString?: string): string => {
-    if (!htmlString) return '';
-    return htmlString.replace(/<[^>]*>/g, '').trim();
+    if (!htmlString) return "";
+    return htmlString.replace(/<[^>]*>/g, "").trim();
   };
-  
+
   // Create enhanced tooltip content based on source and available metadata
   const getTooltipContent = () => {
-    const displayTitle = subject || file.name;
+    const displayTitle = subject || safeName;
     const cleanDescription = stripHtmlTags(noteText);
-    const description = cleanDescription ? `Description: ${cleanDescription}` : '';
-    const sourceInfo = source === 'timeline' ? 'Source: Timeline Notes' : 'Source: File Upload Control';
-    const dateInfo = createdOn ? `Created: ${createdOn.toLocaleDateString()}` : '';
-    
+    const description = cleanDescription
+      ? `Description: ${cleanDescription}`
+      : "";
+    const sourceInfo =
+      source === "timeline"
+        ? "Source: Timeline Notes"
+        : "Source: File Upload Control";
+    const dateInfo = createdOn
+      ? `Created: ${createdOn.toLocaleDateString()}`
+      : "";
+
     const tooltipParts = [displayTitle];
     if (description) tooltipParts.push(description);
     tooltipParts.push(sourceInfo);
     if (dateInfo) tooltipParts.push(dateInfo);
-    
-    return tooltipParts.join('\n');
+
+    return tooltipParts.join("\n");
   };
 
   return (
-    <div className={`file-card ${isExistingFile ? "existing-file" : ""} ${source ? `source-${source}` : ""}`}>
+    <div
+      className={`file-card ${isExistingFile ? "existing-file" : ""} ${
+        source ? `source-${source}` : ""
+      }`}
+    >
       <div className="file-icon">
         <Icon iconName={icon} style={{ fontSize: "32px" }} />
         {/* Source indicator badge */}
         {source && (
           <div className={`source-badge source-${source}`}>
-            <Icon 
-              iconName={source === 'timeline' ? 'Timeline' : 'Upload'} 
-              style={{ fontSize: '10px' }}
+            <Icon
+              iconName={source === "timeline" ? "Timeline" : "Upload"}
+              style={{ fontSize: "10px" }}
             />
           </div>
         )}
@@ -74,7 +97,7 @@ export const FileCard: React.FC<FileCardProps> = ({
               },
             }}
           >
-            {subject || file.name}
+            {subject || safeName}
           </Text>
         </TooltipHost>
         <div className="file-meta">
@@ -100,20 +123,23 @@ export const FileCard: React.FC<FileCardProps> = ({
             }}
           >
             {isExistingFile && (
-              <TooltipHost content={
-                source === 'timeline' 
-                  ? "This file is from timeline notes" 
-                  : "This file is from file upload"
-              }>
+              <TooltipHost
+                content={
+                  source === "timeline"
+                    ? "This file is from timeline notes"
+                    : "This file is from file upload"
+                }
+              >
                 <span className="existing-file-indicator">
                   <Icon
-                    iconName={source === 'timeline' ? "Timeline" : "InfoSolid"}
+                    iconName={source === "timeline" ? "Timeline" : "InfoSolid"}
                     style={{
                       fontSize: "10px",
                       marginRight: "4px",
-                      color: source === 'timeline' 
-                        ? "var(--colorPalettePurpleForeground1, #8764b8)" 
-                        : "var(--colorBrandForeground1, #0078d4)",
+                      color:
+                        source === "timeline"
+                          ? "var(--colorPalettePurpleForeground1, #8764b8)"
+                          : "var(--colorBrandForeground1, #0078d4)",
                     }}
                   />
                   {sizeText}

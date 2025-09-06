@@ -418,6 +418,18 @@
   pointer-events: none;
 }
 
+/* Initial loading placeholder */
+.loading-timeline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--colorNeutralForeground2, #616161);
+  padding: 8px 0;
+}
+.loading-timeline-text {
+  font-size: 12px;
+}
+
 /* Better spacing for progress indicators */
 .progress-container .ms-Spinner {
   margin: var(--spacingVerticalM, 12px) 0;
