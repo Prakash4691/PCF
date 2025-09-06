@@ -546,6 +546,66 @@ export const FileUploaderComponent: React.FC<FileUploaderComponentProps> = (
     setIsPreviewOpen(true);
     setIsPreviewLoading(true);
     try {
+      // Helper: detect phone-sized form factor (3 = Phone)
+      const isPhone = !!(
+        context.client &&
+        typeof context.client.getFormFactor === "function" &&
+        context.client.getFormFactor() === 3
+      );
+
+      // Helper: convert Blob to base64 string (without data URL prefix)
+      const blobToBase64 = (blob: Blob): Promise<string> =>
+        new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => {
+            const result = (reader.result as string) || "";
+            const base64 = result.includes(",")
+              ? result.split(",").pop() || ""
+              : result;
+            resolve(base64);
+          };
+          reader.onerror = reject;
+          reader.readAsDataURL(blob);
+        });
+
+      // Helper: open via PCF navigation.openFile if available; return true if handled
+      const tryOpenViaNavigationOpenFile = async (
+        name: string,
+        mime: string,
+        source: { base64?: string; blob?: Blob }
+      ): Promise<boolean> => {
+        try {
+          const navUnknown: unknown = context.navigation as unknown;
+          if (
+            typeof navUnknown === "object" &&
+            navUnknown !== null &&
+            "openFile" in navUnknown &&
+            typeof (navUnknown as { openFile?: unknown }).openFile ===
+              "function"
+          ) {
+            const openFile = (
+              navUnknown as {
+                openFile: (file: {
+                  fileName: string;
+                  fileContent: string;
+                  mimeType?: string;
+                }) => void;
+              }
+            ).openFile;
+            const base64 =
+              source.base64 ??
+              (source.blob ? await blobToBase64(source.blob) : "");
+            if (base64) {
+              openFile({ fileName: name, fileContent: base64, mimeType: mime });
+              return true;
+            }
+          }
+        } catch {
+          // ignore
+        }
+        return false;
+      };
+
       // Determine if existing (placeholder size <=1) meaning we need to fetch from notes
       if (file.size <= 1) {
         const svc = notesServiceRef.current!;
@@ -570,6 +630,19 @@ export const FileUploaderComponent: React.FC<FileUploaderComponentProps> = (
         const note = await svc.retrieveNote(notesId);
         if (note) {
           const blob = base64ToBlob(note.base64, note.mimeType);
+          // On phones, prefer opening PDFs via native navigation.openFile
+          if (isPhone && note.mimeType === "application/pdf") {
+            const opened = await tryOpenViaNavigationOpenFile(
+              note.fileName,
+              note.mimeType,
+              { base64: note.base64 }
+            );
+            if (opened) {
+              setIsPreviewOpen(false);
+              setPreviewData(null);
+              return;
+            }
+          }
           if (isTextType(note.mimeType)) {
             const text = await blob.text();
             setPreviewData({
@@ -594,6 +667,19 @@ export const FileUploaderComponent: React.FC<FileUploaderComponentProps> = (
       } else {
         // New file chosen locally
         const mimeType = file.type || getMimeTypeFromExtension(file.name);
+        // On phones, prefer opening PDFs via native navigation.openFile
+        if (isPhone && mimeType === "application/pdf") {
+          const opened = await tryOpenViaNavigationOpenFile(
+            file.name,
+            mimeType,
+            { blob: file }
+          );
+          if (opened) {
+            setIsPreviewOpen(false);
+            setPreviewData(null);
+            return;
+          }
+        }
         if (isTextType(mimeType)) {
           const text = await readFileAsText(file);
           setPreviewData({ fileName: file.name, mimeType, textContent: text });
