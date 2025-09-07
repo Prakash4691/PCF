@@ -87,6 +87,7 @@ export const FileUploaderComponent: React.FC<FileUploaderComponentProps> = (
     []
   );
   const [isLoadingTimeline, setIsLoadingTimeline] = React.useState(true);
+  const [hasLoadedOnce, setHasLoadedOnce] = React.useState(false);
   const [mergedFiles, setMergedFiles] = React.useState<File[]>([]);
 
   if (!notesServiceRef.current) {
@@ -102,6 +103,14 @@ export const FileUploaderComponent: React.FC<FileUploaderComponentProps> = (
   const parentRecordId =
     (context as unknown as ParentRecordContextParam).parameters.parentRecordId
       ?.raw || "";
+
+  // If there's no parent record, this is a new/unsaved record. Do not show timeline loading.
+  React.useEffect(() => {
+    if (!parentRecordId) {
+      setIsLoadingTimeline(false);
+      setHasLoadedOnce(true);
+    }
+  }, [parentRecordId]);
 
   // Extend File interface for notesId metadata (existing uploaded placeholder files)
   interface FileWithNoteId extends File {
@@ -173,6 +182,7 @@ export const FileUploaderComponent: React.FC<FileUploaderComponentProps> = (
       setTimelineFiles([]); // Set empty array on error
     } finally {
       setIsLoadingTimeline(false);
+      setHasLoadedOnce(true);
     }
   }, [parentRecordId]);
 
@@ -750,7 +760,7 @@ export const FileUploaderComponent: React.FC<FileUploaderComponentProps> = (
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
     >
-      {isLoadingTimeline ? (
+      {Boolean(parentRecordId) && !hasLoadedOnce && isLoadingTimeline ? (
         <div className="loading-timeline" role="status" aria-live="polite">
           <Spinner size={SpinnerSize.small} />
           <div className="loading-timeline-text">Loading files…</div>
@@ -780,7 +790,7 @@ export const FileUploaderComponent: React.FC<FileUploaderComponentProps> = (
           <FileHeader
             fileCount={newFilesCount > 0 ? newFilesCount : mergedFiles.length} // Show total count of all files (PCF + timeline)
             mode={newFilesCount > 0 ? "selected" : "uploaded"}
-            isLoading={isLoadingTimeline}
+            isLoading={Boolean(parentRecordId) && isLoadingTimeline}
             onAddFiles={handlePickFilesClick}
           />
           <FileGrid
