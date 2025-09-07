@@ -51,6 +51,26 @@
     0 0 0 1px rgba(0, 120, 212, 0.15);
 }
 
+/* Disabled wrapper for new/unsaved records */
+.file-uploader-container.is-disabled {
+  background-color: var(--colorNeutralBackground2, #fafafa);
+  border-style: dashed;
+  pointer-events: none; /* block interactions */
+}
+.file-uploader-container.is-disabled .disabled-placeholder {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--colorNeutralForeground2, #616161);
+  padding: 20px 0;
+}
+.file-uploader-container.is-disabled .disabled-icon {
+  color: var(--colorNeutralForeground3, #8a8886);
+}
+.file-uploader-container.is-disabled .disabled-text {
+  font-size: 12px;
+}
+
 .file-uploader-content {
   display: flex;
   flex-direction: column;
