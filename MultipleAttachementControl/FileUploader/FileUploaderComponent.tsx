@@ -104,6 +104,8 @@ export const FileUploaderComponent: React.FC<FileUploaderComponentProps> = (
     (context as unknown as ParentRecordContextParam).parameters.parentRecordId
       ?.raw || "";
 
+  const isNewRecord = !parentRecordId;
+
   // If there's no parent record, this is a new/unsaved record. Do not show timeline loading.
   React.useEffect(() => {
     if (!parentRecordId) {
@@ -753,14 +755,22 @@ export const FileUploaderComponent: React.FC<FileUploaderComponentProps> = (
         typeof allocatedHeight === "number" && allocatedHeight > 0
           ? "has-host-height"
           : "auto-height"
-      }`}
+      } ${isNewRecord ? "is-disabled" : ""}`}
       data-allocated-width={allocatedWidth}
       data-allocated-height={allocatedHeight}
-      onDragOver={handleDragOver}
-      onDragLeave={handleDragLeave}
-      onDrop={handleDrop}
+      onDragOver={isNewRecord ? undefined : handleDragOver}
+      onDragLeave={isNewRecord ? undefined : handleDragLeave}
+      onDrop={isNewRecord ? undefined : handleDrop}
     >
-      {Boolean(parentRecordId) && !hasLoadedOnce && isLoadingTimeline ? (
+      {isNewRecord ? (
+        <div className="disabled-placeholder" role="note" aria-live="polite">
+          <Icon iconName="Blocked2" className="disabled-icon" />
+          <div className="disabled-text">
+            This record hasn't been created yet. To enable file upload, create
+            this record
+          </div>
+        </div>
+      ) : Boolean(parentRecordId) && !hasLoadedOnce && isLoadingTimeline ? (
         <div className="loading-timeline" role="status" aria-live="polite">
           <Spinner size={SpinnerSize.small} />
           <div className="loading-timeline-text">Loading files…</div>
