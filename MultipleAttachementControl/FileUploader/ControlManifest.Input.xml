@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8" ?>
 <manifest>
-  <control namespace="MultipleAttachments" constructor="MultipleFileUploader" version="3.2.0" display-name-key="Multiple File Uploader" description-key="Upload multiple files as attachments new version" control-type="virtual">
+  <control namespace="MultipleAttachments" constructor="MultipleFileUploader" version="4.0.0" display-name-key="Multiple File Uploader" description-key="Upload multiple files as attachments new version" control-type="virtual">
     <external-service-usage enabled="false">
     </external-service-usage>
     <property name="fileData" display-name-key="File Data" description-key="Data for the files to be uploaded" of-type="Multiple" usage="bound" required="true" />
