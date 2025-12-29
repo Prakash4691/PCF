@@ -378,15 +378,85 @@ export const FileUploaderComponent: React.FC<FileUploaderComponentProps> = (
     }
   }, [selectedFiles]);
 
-  const handleFileSelection = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const files = event.target.files;
-    if (files && files.length > 0) {
-      const fileArray = Array.from(files);
-      onFilesSelected(fileArray);
-      if (fileInputRef.current) {
-        fileInputRef.current.value = "";
+  const handleSelectedFiles = (
+    files: File[] | FileList | null,
+    isDragAndDrop = false
+  ) => {
+    if (!files || files.length === 0) return;
+
+    const blockedExtensions = blockedFileExtension
+      ? blockedFileExtension
+          .split(";")
+          .map((ext: string) => ext.trim().toLowerCase())
+          .filter(Boolean)
+      : [];
+
+    const validFiles: File[] = [];
+    const blockedFiles: string[] = [];
+    const oversizedFiles: string[] = [];
+
+    Array.from(files).forEach((file) => {
+      const safeName = getSafeFileName(file);
+      const extension = safeName.split(".").pop()?.toLowerCase() || "";
+
+      if (blockedExtensions.includes(extension)) {
+        blockedFiles.push(safeName);
+        return;
       }
+
+      if (
+        maxFileSizeForAttachment > 0 &&
+        file.size > maxFileSizeForAttachment
+      ) {
+        oversizedFiles.push(safeName);
+        return;
+      }
+
+      validFiles.push(file);
+    });
+
+    if (validFiles.length > 0) {
+      onFilesSelected(validFiles, isDragAndDrop);
     }
+
+    if (blockedFiles.length > 0 || oversizedFiles.length > 0) {
+      const messages: string[] = [];
+
+      if (blockedFiles.length > 0) {
+        messages.push(
+          `Blocked extensions: ${blockedFiles.join(", ")}`
+        );
+      }
+
+      if (oversizedFiles.length > 0) {
+        messages.push(
+          `Exceeds size limit (${(
+            maxFileSizeForAttachment / 1024
+          ).toLocaleString()} KB): ${oversizedFiles.join(", ")}`
+        );
+      }
+
+      setDialogContent({
+        title:
+          blockedFiles.length > 0 && oversizedFiles.length > 0
+            ? "Some files were not added"
+            : blockedFiles.length > 0
+            ? "Blocked File Type"
+            : "File Size Limit Exceeded",
+        subText: `The following file(s) were not added: ${messages.join(
+          "; "
+        )}.`,
+      });
+      setShowSizeLimitDialog(true);
+    }
+
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+  };
+
+  const handleFileSelection = (event: React.ChangeEvent<HTMLInputElement>) => {
+    handleSelectedFiles(event.target.files);
   };
 
   const handleDragOver = (event: React.DragEvent<HTMLDivElement>) => {
@@ -406,11 +476,7 @@ export const FileUploaderComponent: React.FC<FileUploaderComponentProps> = (
     event.stopPropagation();
     setIsDragging(false);
 
-    const files = event.dataTransfer.files;
-    if (files && files.length > 0) {
-      const fileArray = Array.from(files);
-      onFilesSelected(fileArray, true);
-    }
+    handleSelectedFiles(event.dataTransfer.files, true);
   };
 
   const handlePickFilesClick = async () => {
